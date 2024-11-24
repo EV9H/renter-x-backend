@@ -24,12 +24,11 @@ BASE_DIR = Path(__file__).resolve().parent.parent
 # See https://docs.djangoproject.com/en/5.1/howto/deployment/checklist/
 
 # SECURITY WARNING: keep the secret key used in production secret!
-SECRET_KEY = "django-insecure-+3z6-=y+hkt7emx76vg8g@ftoh6bs3ctu4=m_oq#e_tuno#=us"
-
+# SECRET_KEY = "django-insecure-+3z6-=y+hkt7emx76vg8g@ftoh6bs3ctu4=m_oq#e_tuno#=us"
+SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'django-insecure-+3z6-=y+hkt7emx76vg8g@ftoh6bs3ctu4=m_oq#e_tuno#=us')
 # SECURITY WARNING: don't run with debug turned on in production!
-DEBUG = True
-
-ALLOWED_HOSTS = []
+DEBUG = os.getenv('DEBUG', 'False') == 'True'
+ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '').split(',')
 
 
 # Application definition
@@ -43,6 +42,7 @@ INSTALLED_APPS = [
     "django.contrib.staticfiles",
     'rest_framework',
     'django_filters',
+    'corsheaders',
     'buildings',
 ]
 
@@ -83,11 +83,11 @@ WSGI_APPLICATION = "core.wsgi.application"
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv('DB_NAME'),
-        'USER': os.getenv('DB_USER'),
-        'PASSWORD': os.getenv('DB_PASSWORD'),
-        'HOST': os.getenv('DB_HOST'),
-        'PORT': os.getenv('DB_PORT'),
+        'NAME': os.getenv('POSTGRES_NAME', 'postgres'),
+        'USER': os.getenv('POSTGRES_USER', 'postgres'),
+        'PASSWORD': os.getenv('POSTGRES_PASSWORD', 'postgres'),
+        'HOST': os.getenv('POSTGRES_HOST', 'db'),  # 'db' for local Docker, 'localhost' for GitHub Actions
+        'PORT': os.getenv('POSTGRES_PORT', '5432'),
     }
 }
 
