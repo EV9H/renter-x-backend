@@ -1,0 +1,18 @@
+[run]
+source = buildings
+omit =
+    */migrations/*
+    */tests/*
+    */__init__.py
+    */apps.py
+    manage.py
+
+[report]
+exclude_lines =
+    pragma: no cover
+    def __str__
+    def __repr__
+    raise NotImplementedError
+    if __name__ == .__main__.:
+    pass
+    raise ImportError

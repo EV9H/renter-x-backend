@@ -1,0 +1,27 @@
+{
+    "name": "Django Poetry Development",
+    "dockerComposeFile": "docker-compose.yml",
+    "service": "web",
+    "workspaceFolder": "/workspace",
+    "customizations": {
+        "vscode": {
+            "extensions": [
+                "ms-python.python",
+                "ms-python.vscode-pylance",
+                "batisteo.vscode-django",
+                "charliermarsh.ruff",
+                "ms-python.black-formatter"
+            ],
+            "settings": {
+                "python.defaultInterpreterPath": "/root/.local/share/pypoetry/venv/bin/python",
+                "python.formatting.provider": "black",
+                "editor.formatOnSave": true,
+                "editor.codeActionsOnSave": {
+                    "source.fixAll": true
+                }
+            }
+        }
+    },
+    "forwardPorts": [8000, 5432],
+    "postCreateCommand": "poetry install"
+}
