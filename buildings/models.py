@@ -1,6 +1,7 @@
 from django.db import models
 from django.contrib.postgres.fields import ArrayField
-
+from django.contrib.auth.models import User, AbstractUser, BaseUserManager, UserManager
+from django.utils.translation import gettext_lazy as _
 
 class Building(models.Model):
     name = models.CharField(max_length=200)
@@ -143,3 +144,74 @@ class PriceChange(models.Model):
         indexes = [
             models.Index(fields=['detected_at']),
         ]
+
+
+# class CustomUserManager(BaseUserManager):
+#     def create_user(self, email, password=None, **extra_fields):
+#         if not email:
+#             raise ValueError('The Email field must be set')
+#         email = self.normalize_email(email)
+#         user = self.model(email=email, **extra_fields)
+#         user.set_password(password)
+#         user.save(using=self._db)
+#         return user
+
+#     def create_superuser(self, email, password=None, **extra_fields):
+#         extra_fields.setdefault('is_staff', True)
+#         extra_fields.setdefault('is_superuser', True)
+#         return self.create_user(email, password, **extra_fields)
+
+# class CustomUser(AbstractUser):
+#     username = None
+#     email = models.EmailField(_('email address'), unique=True)
+    
+#     USERNAME_FIELD = 'email'
+#     REQUIRED_FIELDS = []
+
+#     objects = CustomUserManager()
+
+#     def __str__(self):
+#         return self.email
+class NewUserManager(UserManager):
+
+    def create_user(self,email,name,password=None):
+        """Create a new user profile"""
+        if not email:
+            raise ValueError('User must have an email address')
+        
+        email = self.normalize_email(email) 
+        user = self.model(email=email,name=name) 
+        user.set_password(password)
+        user.save(using=self.db)
+        return user
+
+class NewUserProfile(models.Model):
+    objects = NewUserManager()
+    user = models.OneToOneField(
+        User, 
+        on_delete=models.CASCADE,
+        related_name='profile'
+    )
+    phone_number = models.CharField(max_length=15, blank=True, null=True)
+    preferred_contact_method = models.CharField(
+        max_length=10,
+        choices=[('email', 'Email'), ('phone', 'Phone')],
+        default='email'
+    )
+    notification_preferences = models.JSONField(default=dict)
+    saved_searches = models.JSONField(default=list)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    def __str__(self):
+        return f"Profile for {self.user.email}"
+    
+
+
+from django.db.models.signals import post_save
+from django.dispatch import receiver
+
+@receiver(post_save, sender=User)
+def create_user_profile(sender, instance, created, **kwargs):
+    if created:
+        NewUserProfile.objects.create(user=instance)

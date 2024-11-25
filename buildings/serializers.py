@@ -48,3 +48,17 @@ class PriceChangeSerializer(serializers.ModelSerializer):
     class Meta:
         model = PriceChange
         fields = '__all__'
+
+
+from .models import NewUserProfile
+
+class UserProfileSerializer(serializers.ModelSerializer):
+    email = serializers.EmailField(source='user.email', read_only=True)
+
+    class Meta:
+        model = NewUserProfile
+        fields = [
+            'id', 'email', 'phone_number', 'preferred_contact_method',
+            'notification_preferences', 'saved_searches', 
+            'created_at', 'updated_at'
+        ]
