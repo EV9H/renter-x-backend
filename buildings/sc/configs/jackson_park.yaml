@@ -1,0 +1,34 @@
+name: Jackson Park
+url: https://jacksonparklic.com/availability
+parser_type: html
+building_info:
+  name: Jackson Park
+  address: 28-34 Jackson Avenue
+  postal_code: "11101"
+  city: Long Island City
+  state: NY
+  website: https://jacksonparklic.com
+  amenities:
+    fitness_center: true
+    pool: true
+    lounge: true
+    doorman: true
+
+selectors:
+  unit_list: "div.unit-container"  
+  unit_data:
+    unit_number: "div.unit-number"
+    price: "div.pricing"
+    bedrooms: "div.beds"
+    bathrooms: "div.baths"
+    area_sqft: "div.sqft"
+    floor: "div.floor"
+    apartment_type: "div.type"
+
+transformers:
+  price: extract_price
+  bedrooms: extract_bedrooms
+  bathrooms: extract_bathrooms
+  area_sqft: extract_sqft
+  floor: extract_floor
+  apartment_type: extract_string
