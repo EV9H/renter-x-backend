@@ -22,6 +22,8 @@
             }
         }
     },
-    "forwardPorts": [8000, 5432],
+    "forwardPorts": [
+        8000
+    ],
     "postCreateCommand": "poetry install"
 }

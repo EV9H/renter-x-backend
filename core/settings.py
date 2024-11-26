@@ -81,32 +81,42 @@ WSGI_APPLICATION = "core.wsgi.application"
 # Database
 # https://docs.djangoproject.com/en/5.1/ref/settings/#databases
 
-import socket
+# import socket
 
 # Determine if we're running inside Docker
-def is_docker():
-    try:
-        with open('/proc/1/cgroup', 'rt') as ifh:
-            return 'docker' in ifh.read()
-    except FileNotFoundError:
-        return False
+# def is_docker():
+#     try:
+#         with open('/proc/1/cgroup', 'rt') as ifh:
+#             return 'docker' in ifh.read()
+#     except FileNotFoundError:
+#         return False
 
-if is_docker():
-    POSTGRES_HOST_DEFAULT = 'db'
-else:
-    POSTGRES_HOST_DEFAULT = 'localhost'
+# if is_docker():
+#     POSTGRES_HOST_DEFAULT = 'db'
+# else:
+#     POSTGRES_HOST_DEFAULT = 'localhost'
+
+# DATABASES = {
+#     'default': {
+#         'ENGINE': 'django.db.backends.postgresql',
+#         'NAME': os.getenv('POSTGRES_NAME', 'postgres'),
+#         'USER': os.getenv('POSTGRES_USER', 'postgres'),
+#         'PASSWORD': os.getenv('POSTGRES_PASSWORD', 'postgres'),
+#         'HOST': os.getenv('POSTGRES_HOST', POSTGRES_HOST_DEFAULT),
+#         'PORT': os.getenv('POSTGRES_PORT', '5432'),
+#     }
+# }
 
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv('POSTGRES_NAME', 'postgres'),
-        'USER': os.getenv('POSTGRES_USER', 'postgres'),
-        'PASSWORD': os.getenv('POSTGRES_PASSWORD', 'postgres'),
-        'HOST': os.getenv('POSTGRES_HOST', POSTGRES_HOST_DEFAULT),
-        'PORT': os.getenv('POSTGRES_PORT', '5432'),
+        'NAME': os.getenv('DATABASE_NAME', 'postgres'),
+        'USER': os.getenv('DATABASE_USER', 'postgres'),
+        'PASSWORD': os.getenv('DATABASE_PASSWORD', 'postgres'),
+        'HOST': os.getenv('DATABASE_HOST', 'localhost'),
+        'PORT': os.getenv('DATABASE_PORT', '5432'),
     }
 }
-
 
 # Password validation
 # https://docs.djangoproject.com/en/5.1/ref/settings/#auth-password-validators
