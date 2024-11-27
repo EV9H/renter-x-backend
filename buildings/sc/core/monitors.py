@@ -39,22 +39,20 @@ class ScraperMonitor:
         """Setup logging configuration"""
         self.logger = logging.getLogger('scraper_monitor')
         
-        # Remove any existing handlers
+        # Clear any existing handlers
         self.logger.handlers = []
         
-        self.logger.setLevel(logging.INFO)
-        
-        # Console handler
-        console_handler = logging.StreamHandler(sys.stdout)
-        console_handler.setLevel(logging.INFO)
-        
-        # Format with colors
-        formatter = logging.Formatter(
-            f'{Fore.CYAN}%(asctime)s{Style.RESET_ALL} - '
-            f'%(levelname)s - %(message)s'
-        )
-        console_handler.setFormatter(formatter)
-        
+        # Only add handler if none exists
+        if not self.logger.handlers:
+            console_handler = logging.StreamHandler(sys.stdout)
+            console_handler.setLevel(logging.INFO)
+            
+            formatter = logging.Formatter(
+                f'{Fore.CYAN}%(asctime)s{Style.RESET_ALL} - '
+                f'%(levelname)s - %(message)s'
+            )
+            console_handler.setFormatter(formatter)
+            
         self.logger.addHandler(console_handler)
 
     def _log_scraper_status(self, scraper_name: str, status: str, **kwargs):

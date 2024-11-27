@@ -18,9 +18,11 @@ class ScraperEngine:
         self.config = config
         self.monitor = ScraperMonitor()
         self.transformers = TransformerRegistry()
+        self.selectors = config['selectors']  # Extract selectors from config
         self.user_agents = [
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
         ]
+
     async def _wait_for_angular(self, page):
         """Wait for Angular to finish loading"""
         try:
@@ -76,140 +78,183 @@ class ScraperEngine:
             raise
 
     async def _fetch_page_with_playwright(self, url: str) -> Optional[str]:
-        """Fetch page using Playwright with Angular support"""
         async with async_playwright() as p:
             browser = await p.chromium.launch(headless=True)
             context = await browser.new_context(
                 user_agent=self.user_agents[0],
                 viewport={'width': 1920, 'height': 1080}
             )
-            
+
             try:
                 page = await context.new_page()
-                
-                # Enable detailed logging
-                page.on('console', lambda msg: logger.debug(f'Browser console: {msg.text}'))
-                page.on('pageerror', lambda err: logger.error(f'Browser error: {err}'))
-                
-                # Navigate to the page
                 logger.info(f"Navigating to {url}")
-                await page.goto(url, wait_until='networkidle')
-                
-                # Wait for Angular
-                logger.info("Waiting for Angular to load...")
-                await self._wait_for_angular(page)
-                
-                # Wait for the specific elements we're interested in
-                logger.info("Waiting for apartment listings...")
-                try:
-                    await page.wait_for_selector('.availibility-box', timeout=10000)
-                    logger.info("Found availability boxes")
-                except Exception as e:
-                    logger.warning(f"Timeout waiting for availability boxes: {str(e)}")
-                
-                # Save page state for debugging
-                await page.screenshot(path='debug_screenshot.png')
-                
-                # Get the page content
+                await page.goto(url, wait_until='networkidle', timeout=60000)
+
+                # Scroll to load all content
+                for _ in range(10):
+                    await page.evaluate("window.scrollBy(0, 500);")
+                    await asyncio.sleep(1)
+
+                # Wait for the elements to load
+                unit_list_selector = self.selectors['unit_list']
+                elements = await page.query_selector_all(unit_list_selector)
+                if not elements:
+                    raise Exception("No units found on the page")
+                logger.info(f"Found {len(elements)} units")
+
+                # Capture content
                 content = await page.content()
-                
-                # Save HTML for debugging
-                with open('debug_page.html', 'w', encoding='utf-8') as f:
-                    f.write(content)
-                
-                logger.info("Successfully retrieved page content")
                 return content
 
             except Exception as e:
                 logger.error(f"Error during page fetch: {str(e)}")
-                await page.screenshot(path='error_screenshot.png')
+                await page.screenshot(path="error_screenshot.png")
                 raise
-            
-            finally:
-                await context.close()
-                await browser.close() 
 
+            finally:
+                await browser.close()
+
+    # async def _parse_content(self, html_content: str) -> List[Dict]:
+    #     try:
+    #         soup = BeautifulSoup(html_content, 'html.parser')
+    #         units = []
+
+    #         unit_containers = soup.select(self.selectors['unit_list'])
+    #         logger.info(f"Found {len(unit_containers)} potential units")
+    #         for container in unit_containers:
+    #             try:
+    #                 unit_data = {}
+    #                 required_fields = {'unit_number', 'bedrooms', 'bathrooms', 'price'}
+                    
+    #                 # Extract raw text first
+    #                 for field, selector in self.selectors['unit_data'].items():
+    #                     element = container.select_one(selector)
+    #                     if element:
+    #                         raw_text = element.text.strip()
+    #                         logger.info(raw_text)
+    #                         # Clean the text directly
+    #                         unit_data[field] = ' '.join(raw_text.split())
+                    
+    #                 # Transform the data
+    #                 transformed_data = {}
+    #                 for field, transformer_name in self.config.get('transformers', {}).items():
+    #                     if field in unit_data:
+    #                         try:
+    #                             transformed_data[field] = self.transformers.transform(
+    #                                 transformer_name, 
+    #                                 unit_data[field]
+    #                             )
+    #                         except Exception as e:
+    #                             logger.error(f"Error transforming {field}: {str(e)}")
+    #                             continue
+                    
+    #                 # Add unit number directly from raw data
+    #                 if 'unit_number' in unit_data:
+    #                     transformed_data['unit_number'] = unit_data['unit_number'].replace('Residence', '').strip()
+                    
+    #                 # Validate the transformed data
+    #                 if all(field in transformed_data for field in required_fields):
+    #                     logger.info(f"Successfully transformed unit: {transformed_data}")
+    #                     units.append(transformed_data)
+    #                 else:
+    #                     missing = required_fields - set(transformed_data.keys())
+    #                     logger.warning(f"Missing required fields {missing} in transformed data: {transformed_data}")
+    #                     logger.warning(f"Original unit data: {unit_data}")
+
+    #             except Exception as e:
+    #                 logger.error(f"Error parsing unit container: {str(e)}", exc_info=True)
+    #                 continue
+
+    #         return units
+
+    #     except Exception as e:
+    #         logger.error(f"Error parsing content: {str(e)}", exc_info=True)
+    #         raise
     async def _parse_content(self, html_content: str) -> List[Dict]:
-        """Parse HTML content to extract unit information"""
         try:
             soup = BeautifulSoup(html_content, 'html.parser')
             units = []
 
-            # Find all unit containers
-            unit_containers = soup.select('.availibility-box')
+            # Select all unit containers
+            unit_containers = soup.select(self.selectors['unit_list'])
             logger.info(f"Found {len(unit_containers)} potential units")
 
-            # Floor plan size reference data (typical sizes based on bedrooms)
-            DEFAULT_SIZES = {
-                0: 500,  # Studio
-                1: 700,  # 1 bedroom
-                2: 1000,  # 2 bedrooms
-                3: 1400,  # 3 bedrooms
-                4: 1800   # 4 bedrooms
-            }
+            if self.config.get('selector_type') == 'attribute':
+                logger.info("Using attribute selector logic")
+                for container in unit_containers:
+                    try:
+                        unit_data = {}
+                        required_fields = {'unit_number', 'bedrooms', 'bathrooms', 'price'}
 
-            for container in unit_containers:
-                try:
-                    # Extract modal content for additional details
-                    unit_number = container.select_one('.box-title').text.strip()
-                    modal_link = container.select_one('[data-target="#availabilityModal"]')
-                    area_sqft = None
+                        # Extract attributes directly from the container
+                        unit_data['unit_number'] = container.get('data-name', '').strip()
+                        unit_data['bedrooms'] = container.get('data-rooms', '').strip()
+                        unit_data['bathrooms'] = container.get('data-bath', '').strip()
+                        unit_data['price'] = container.get('data-rent', '').strip()
 
-                    # Try to find square footage in modal content
-                    if modal_link:
-                        modal_content = container.find_next('.modal-body')
-                        if modal_content:
-                            # Look for square footage in the description
-                            description = modal_content.text.lower()
-                            sqft_match = re.search(r'(\d+)\s*sq\s*ft', description)
-                            if sqft_match:
-                                area_sqft = int(sqft_match.group(1))
+                        logger.debug(f"Extracted unit data: {unit_data}")
 
-                    # Extract other details
-                    tower = container.select_one('.tower-title').text.strip()
-                    details_elems = container.select('.property-details')
-                    details_texts = [elem.text.strip() for elem in details_elems]
+                        # Validate the required fields
+                        if all(field in unit_data and unit_data[field] for field in required_fields):
+                            logger.info(f"Successfully retrieve unit: {unit_data}")
+                            units.append(unit_data)
+                        else:
+                            logger.warning(f"Missing fields in unit data: {unit_data}")
 
-                    # Process details
-                    bedrooms = bathrooms = price = None
-                    for text in details_texts:
-                        if 'Bedroom' in text:
-                            bedrooms = self.transformers.transform('extract_bedrooms_from_details', text)
-                        if 'Bathroom' in text:
-                            bathrooms = self.transformers.transform('extract_bathrooms_from_details', text)
-                        if '$' in text:
-                            price = self.transformers.transform('extract_price_from_details', text)
+                    except Exception as e:
+                        logger.error(f"Error parsing container: {str(e)}", exc_info=True)
+                        continue
+            else:
+                logger.info("Using default selector logic")
+                for container in unit_containers:
+                    try:
+                        unit_data = {}
+                        required_fields = {'unit_number', 'bedrooms', 'bathrooms', 'price'}
+                        
+                        # Extract raw text first
+                        for field, selector in self.selectors['unit_data'].items():
+                            element = container.select_one(selector)
+                            if element:
+                                raw_text = element.text.strip()
+                                logger.info(raw_text)
+                                # Clean the text directly
+                                unit_data[field] = ' '.join(raw_text.split())
+                        
+                        # Transform the data
+                        transformed_data = {}
+                        for field, transformer_name in self.config.get('transformers', {}).items():
+                            if field in unit_data:
+                                try:
+                                    transformed_data[field] = self.transformers.transform(
+                                        transformer_name, 
+                                        unit_data[field]
+                                    )
+                                except Exception as e:
+                                    logger.error(f"Error transforming {field}: {str(e)}")
+                                    continue
+                        
+                        # Add unit number directly from raw data
+                        if 'unit_number' in unit_data:
+                            transformed_data['unit_number'] = unit_data['unit_number'].replace('Residence', '').strip()
+                        
+                        # Validate the transformed data
+                        if all(field in transformed_data for field in required_fields):
+                            logger.info(f"Successfully transformed unit: {transformed_data}")
+                            units.append(transformed_data)
+                        else:
+                            missing = required_fields - set(transformed_data.keys())
+                            logger.warning(f"Missing required fields {missing} in transformed data: {transformed_data}")
+                            logger.warning(f"Original unit data: {unit_data}")
 
-                    # Use default size if we couldn't find the actual size
-                    if area_sqft is None and bedrooms is not None:
-                        area_sqft = DEFAULT_SIZES.get(int(bedrooms), 1000)
-                        logger.warning(f"Using default size {area_sqft} for unit {unit_number}")
-
-                    unit = {
-                        'tower': tower,
-                        'unit_number': unit_number,
-                        'bedrooms': bedrooms,
-                        'bathrooms': bathrooms,
-                        'price': price,
-                        'area_sqft': area_sqft,
-                        'features': self._extract_features(container),
-                    }
-
-                    if all(v is not None for v in [bedrooms, bathrooms, price, area_sqft]):
-                        units.append(unit)
-                        logger.info(f"Successfully parsed unit: {unit}")
-                    else:
-                        logger.warning(f"Incomplete unit data: {unit}")
-
-                except Exception as e:
-                    logger.warning(f"Error parsing unit container: {str(e)}")
-                    continue
+                    except Exception as e:
+                        logger.error(f"Error parsing unit container: {str(e)}", exc_info=True)
+                        continue
 
             return units
-
         except Exception as e:
-            logger.error(f"Error parsing content: {str(e)}")
-            raise
+            logger.error(f"Error parsing content: {str(e)}", exc_info=True)
+            return []
+
 
     def _safe_extract(self, container, selector: str) -> str:
         """Safely extract text from element"""

@@ -1,0 +1,26 @@
+name: Pearl House
+url: https://pearlhousenyc.com/availability
+parser_type: html
+building_info:
+  name: Pearl House
+  address: "160 Water Street"
+  postal_code: "10038"
+  city: "New York"
+  state: "NY"
+  website: "https://pearlhousenyc.com"
+  amenities:
+    fitness_center: true
+    doorman: true
+
+selectors:
+  unit_list: ".availability-table tr"
+  unit_data:
+    unit_number: ".column-data.residence-column-name"
+    bedrooms: ".column-data.type-column-name"
+    bathrooms: ".column-data.baths-column-name"
+    price: ".column-data.price-column-name"
+
+transformers:
+  bedrooms: extract_bedrooms_from_details
+  bathrooms: extract_bathrooms_from_details
+  price: extract_price_from_details

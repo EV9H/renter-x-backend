@@ -59,12 +59,12 @@ class ScraperQueue:
                 building=building,
                 unit_number=unit_data.unit_number,
                 defaults={
-                    'floor': unit_data.floor,
+                    'floor': unit_data.floor or 1,
                     'bedrooms': unit_data.bedrooms,
                     'bathrooms': unit_data.bathrooms,
-                    'area_sqft': unit_data.area_sqft,
+                    'area_sqft': unit_data.area_sqft or 0,
                     'apartment_type': unit_data.apartment_type,
-                    'features': unit_data.features,
+                    'features': unit_data.features or {},
                 }
             )
 
@@ -90,72 +90,77 @@ class ScraperQueue:
             scraping_run.error_log = error
         scraping_run.save()
 
-    async def run_scraper(self, config: ScraperConfig):
-        """Run a single scraper and save results"""
-        try:
-            # Create scraping source and run
-            source = await self._get_or_create_source(config.name, config.url)
-            scraping_run = await self._create_scraping_run(source)
+    # async def run_scraper(self, config: ScraperConfig):
+    #     """Run a single scraper and save results"""
+    #     try:
+    #         # Create scraping source and run
+    #         source = await self._get_or_create_source(config.name, config.url)
+    #         scraping_run = await self._create_scraping_run(source)
 
-            logger.info(f"Starting to scrape: {config.name}")
-            logger.info(f"URL: {config.url}")
+    #         logger.info(f"Starting to scrape: {config.name}")
+    #         logger.info(f"URL: {config.url}")
 
-            # Get or create building
-            building = await self._get_or_create_building(config.building_info)
-            logger.info(f"Building: {building.name}")
+    #         # Get or create building
+    #         building = await self._get_or_create_building(config.building_info)
+    #         logger.info(f"Building: {building.name}")
 
-            # Run scraper
-            engine = ScraperEngine(config.dict())
-            units = await engine.scrape()
+    #         # Run scraper
+    #         engine = ScraperEngine(config.dict())
+    #         units = await engine.scrape()
             
-            logger.info(f"Found {len(units)} units")
+    #         logger.info(f"Found {len(units)} units")
 
-            # Update apartments and prices
-            for i, unit in enumerate(units, 1):
-                await self._update_apartment_and_price(building, unit)
-                if i % 5 == 0:  # Log progress every 5 units
-                    logger.info(f"Processed {i}/{len(units)} units")
+    #         # Update apartments and prices
+    #         for i, unit in enumerate(units, 1):
+    #             await self._update_apartment_and_price(building, unit)
+    #             if i % 5 == 0:  # Log progress every 5 units
+    #                 logger.info(f"Processed {i}/{len(units)} units")
 
-            # Update scraping run status
-            await self._update_scraping_run(
-                scraping_run, 
-                ScrapingRun.RunStatus.COMPLETED,
-                len(units)
-            )
+    #         # Update scraping run status
+    #         await self._update_scraping_run(
+    #             scraping_run, 
+    #             ScrapingRun.RunStatus.COMPLETED,
+    #             len(units)
+    #         )
 
-            logger.info(f"Successfully completed scraping {config.name}")
+    #         logger.info(f"Successfully completed scraping {config.name}")
 
-        except Exception as e:
-            logger.error(f"Error running scraper for {config.name}: {str(e)}")
-            if 'scraping_run' in locals():
-                await self._update_scraping_run(
-                    scraping_run,
-                    ScrapingRun.RunStatus.FAILED,
-                    error=str(e)
-                )
-            raise
+    #     except Exception as e:
+    #         logger.error(f"Error running scraper for {config.name}: {str(e)}")
+    #         if 'scraping_run' in locals():
+    #             await self._update_scraping_run(
+    #                 scraping_run,
+    #                 ScrapingRun.RunStatus.FAILED,
+    #                 error=str(e)
+    #             )
+    #         raise
     
     @sync_to_async
     def _process_unit_data(self, building: Building, unit_data: Dict) -> None:
         """Process and save unit data to database"""
         try:
             with transaction.atomic():
+                # Ensure we have the minimum required data
+                required_fields = {'unit_number', 'bedrooms', 'bathrooms', 'price'}
+                if not all(field in unit_data for field in required_fields):
+                    missing = required_fields - set(unit_data.keys())
+                    raise ValueError(f"Missing required fields: {missing}")
+                    
                 # Clean up unit number
-                unit_number = unit_data['unit_number'].replace('Residence', '').strip()
+                unit_number = unit_data['unit_number']
                 
                 # Default values for required fields
                 defaults = {
                     'floor': self._extract_floor(unit_number),
                     'bedrooms': unit_data['bedrooms'],
                     'bathrooms': unit_data['bathrooms'],
-                    'area_sqft': unit_data['area_sqft'],
+                    'area_sqft': unit_data.get('area_sqft', 0),  # Default to 0 if missing
                     'apartment_type': self._get_apartment_type(unit_data['bedrooms']),
                     'status': 'available',
                     'features': unit_data.get('features', {}),
                 }
 
-                # Log the data we're about to save
-                logger.info(f"Creating/updating apartment with data: {defaults}")
+                # logger.info(f"Creating/updating apartment {unit_number} with data: {defaults}")
 
                 # Get or create apartment
                 apartment, created = Apartment.objects.update_or_create(
@@ -174,11 +179,11 @@ class ScraperQueue:
                         lease_term_months=12,
                     )
 
-                logger.info(f"{'Created' if created else 'Updated'} apartment {unit_number}")
+                # logger.info(f"{'Created' if created else 'Updated'} apartment {unit_number}")
 
         except Exception as e:
-            logger.error(f"Error processing unit data: {str(e)}")
-            logger.error(f"Unit data: {unit_data}")
+            # logger.error(f"Error processing unit data: {str(e)}")
+            # logger.error(f"Unit data: {unit_data}")
             raise
 
     @staticmethod
@@ -233,8 +238,8 @@ class ScraperQueue:
                 try:
                     await self._process_unit_data(building, unit)
                 except Exception as e:
-                    logger.error(f"Error processing unit: {str(e)}")
-
+                    # logger.error(f"Error processing unit: {str(e)}")
+                    pass
             # Update scraping run status
             await sync_to_async(self._update_scraping_run)(
                 scraping_run,
@@ -242,10 +247,10 @@ class ScraperQueue:
                 len(units)
             )
 
-            logger.info(f"Successfully processed {len(units)} units for {config.name}")
+            # logger.info(f"Successfully processed {len(units)} units for {config.name}")
 
         except Exception as e:
-            logger.error(f"Error running scraper for {config.name}: {str(e)}")
+            # logger.error(f"Error running scraper for {config.name}: {str(e)}")
             if 'scraping_run' in locals():
                 await sync_to_async(self._update_scraping_run)(
                     scraping_run,
@@ -267,5 +272,9 @@ class ScraperQueue:
 
     async def process_queue(self):
         """Process all scrapers in the queue"""
-        tasks = [self.run_scraper(config) for config in self.configs]
+        
+        tasks = []
+        for config in self.configs:
+            tasks.append(self.run_scraper(config))
+        
         await asyncio.gather(*tasks)

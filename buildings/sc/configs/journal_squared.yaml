@@ -1,0 +1,27 @@
+name: Journal Squared
+url: https://www.journalsquared.com/availabilities/
+parser_type: html
+selector_type: attribute
+building_info:
+  name: Journal Squared
+  address: "615 Pavonia Avenue"
+  postal_code: "07306"
+  city: Jersey City
+  state: NJ
+  website: https://www.journalsquared.com
+  amenities:
+    fitness_center: true
+    doorman: true
+
+selectors:
+  unit_list: "article.floorplans-box"
+  unit_data:
+    unit_number: "data-name"
+    bedrooms: "data-rooms"
+    bathrooms: "data-bath" 
+    price: "data-rent"
+
+transformers:
+  price: extract_string
+  bedrooms: extract_string
+  bathrooms: extract_string

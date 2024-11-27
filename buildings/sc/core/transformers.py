@@ -11,6 +11,10 @@ class TransformerRegistry:
             'extract_bedrooms_from_details': self._extract_bedrooms_from_details,
             'extract_bathrooms_from_details': self._extract_bathrooms_from_details,
             'extract_price_from_details': self._extract_price_from_details,
+            'extract_bedrooms': self._extract_bedrooms,  # New transformer
+            'extract_bathrooms': self._extract_bathrooms,  # New transformer
+            'extract_price': self._extract_price,  # New transformer
+            'clean_text': self._extract_clean_text,
         }
 
     def transform(self, transformer_name: str, value: Any) -> Any:
@@ -64,3 +68,37 @@ class TransformerRegistry:
         except Exception as e:
             logger.error(f"Error extracting price: {str(e)}")
             return Decimal('0')
+        
+    @staticmethod
+    def _extract_bedrooms(value: str) -> Decimal:
+        """Extract bedrooms from type text"""
+        if 'Studio' in value:
+            return Decimal('0')
+        match = re.search(r'(\d+)\s*Bedroom', value)
+        if match:
+            return Decimal(match.group(1))
+        return Decimal('0')
+
+    @staticmethod
+    def _extract_bathrooms(value: str) -> Decimal:
+        """Extract bathrooms from baths text"""
+        try:
+            return Decimal(re.sub(r'[^\d.]', '', value))
+        except:
+            return Decimal('1')
+
+    @staticmethod
+    def _extract_price(value: str) -> Decimal:
+        """Extract price from price text"""
+        try:
+            match = re.search(r'\$([0-9,]+)', value)
+            if match:
+                return Decimal(match.group(1).replace(',', ''))
+            return Decimal('0')
+        except:
+            return Decimal('0')
+        
+    @staticmethod
+    def _extract_clean_text(value: str) -> str:
+        """Clean text by removing excess whitespace and newlines"""
+        return ' '.join(value.split())

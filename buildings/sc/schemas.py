@@ -19,6 +19,7 @@ class ScraperConfig(BaseModel):
     name: str
     url: str
     parser_type: str = 'html'
+    selector_type: str = 'class'
     building_info: Dict
     selectors: Dict
     transformers: Dict = Field(
