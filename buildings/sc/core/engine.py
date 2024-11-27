@@ -1,67 +1,110 @@
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Set
+from decimal import Decimal
 import logging
 from .parsers import get_parser
 from .transformers import TransformerRegistry
 from .monitors import ScraperMonitor
 from ..schemas import ScrapedUnit
 import aiohttp
-logger = logging.getLogger(__name__)
-
+from bs4 import BeautifulSoup
 from playwright.async_api import async_playwright
 import asyncio
-import random
-from bs4 import BeautifulSoup
+from django.utils import timezone
+from django.db import transaction
+from ...models import (
+    Building, Apartment, ApartmentPrice, ScrapingSource, 
+    ScrapingRun, PriceChange
+)
+from asgiref.sync import sync_to_async
 
+logger = logging.getLogger(__name__)
 
 class ScraperEngine:
     def __init__(self, config: Dict):
         self.config = config
         self.monitor = ScraperMonitor()
         self.transformers = TransformerRegistry()
-        self.selectors = config['selectors']  # Extract selectors from config
+        self.selectors = config['selectors']
         self.user_agents = [
             'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
         ]
 
-    async def _wait_for_angular(self, page):
-        """Wait for Angular to finish loading"""
-        try:
-            # Wait for ng-scope to be present (indicates Angular has initialized)
-            await page.wait_for_selector('.ng-scope', timeout=20000)
+    @staticmethod
+    def _get_apartment_type(bedrooms: Decimal) -> str:
+        """Convert number of bedrooms to apartment type"""
+        if bedrooms == 0:
+            return 'Studio'
+        return f'{int(bedrooms)}B{int(bedrooms)}B'
+    
+    # async def _wait_for_angular(self, page):
+    #     """Wait for Angular to finish loading"""
+    #     try:
+    #         # Wait for ng-scope to be present (indicates Angular has initialized)
+    #         await page.wait_for_selector('.ng-scope', timeout=20000)
             
-            # Wait additional time for potential data loading
-            await asyncio.sleep(2)
+    #         # Wait additional time for potential data loading
+    #         await asyncio.sleep(2)
             
-            # Check if any loading indicators are present and wait for them to disappear
-            loading_indicators = await page.query_selector_all('.loading, .spinner')
-            for indicator in loading_indicators:
-                await indicator.wait_for_element_state('hidden')
+    #         # Check if any loading indicators are present and wait for them to disappear
+    #         loading_indicators = await page.query_selector_all('.loading, .spinner')
+    #         for indicator in loading_indicators:
+    #             await indicator.wait_for_element_state('hidden')
                 
-            logger.info("Angular app appears to be fully loaded")
-            return True
-        except Exception as e:
-            logger.error(f"Error waiting for Angular: {str(e)}")
-            return False
+    #         logger.info("Angular app appears to be fully loaded")
+    #         return True
+    #     except Exception as e:
+    #         logger.error(f"Error waiting for Angular: {str(e)}")
+    #         return False
 
     async def scrape(self) -> List[Dict]:
-        """Main scraping method"""
+        """Main scraping method with enhanced tracking"""
         try:
-            self.monitor.start_scrape(self.config['name'])
+            # Initialize scraping run
+            source, _ = await sync_to_async(self._db_get_or_create_source)()
+            scraping_run = await sync_to_async(self._db_create_scraping_run)(source)
             
-            # Fetch webpage content
+            # Get building
+            building, _ = await sync_to_async(self._db_get_or_create_building)()
+            
+            # Fetch and parse content
             html_content = await self._fetch_page_with_playwright(self.config['url'])
             if not html_content:
                 raise Exception("Failed to fetch webpage content")
 
-            # Parse the content
-            units = await self._parse_content(html_content)
+            # Parse units
+            current_units = await self._parse_content(html_content)
             
-            self.monitor.end_scrape(self.config['name'], len(units))
-            return units
+            # Process units and track changes
+            stored_units = await sync_to_async(self._db_get_stored_units)(building)
+            current_unit_numbers = set()
+            
+            # Process current units
+            for unit_data in current_units:
+                current_unit_numbers.add(unit_data['unit_number'])
+                await sync_to_async(self._db_process_single_unit)(building, unit_data, scraping_run)
+            
+            # Handle removed units
+            removed_units = stored_units - current_unit_numbers
+            if removed_units:
+                await sync_to_async(self._db_handle_removed_units)(building, removed_units)
+            
+            # Update scraping run status
+            await sync_to_async(self._db_update_scraping_run)(
+                scraping_run,
+                'completed',
+                len(current_units)
+            )
+            
+            return current_units
 
         except Exception as e:
-            self.monitor.record_error(self.config['name'], str(e))
             logger.error(f"Error in scraping process: {str(e)}")
+            if 'scraping_run' in locals():
+                await sync_to_async(self._db_update_scraping_run)(
+                    scraping_run,
+                    'failed',
+                    error=str(e)
+                )
             return []
 
     async def _fetch_page(self, url: str) -> str:
@@ -114,62 +157,6 @@ class ScraperEngine:
             finally:
                 await browser.close()
 
-    # async def _parse_content(self, html_content: str) -> List[Dict]:
-    #     try:
-    #         soup = BeautifulSoup(html_content, 'html.parser')
-    #         units = []
-
-    #         unit_containers = soup.select(self.selectors['unit_list'])
-    #         logger.info(f"Found {len(unit_containers)} potential units")
-    #         for container in unit_containers:
-    #             try:
-    #                 unit_data = {}
-    #                 required_fields = {'unit_number', 'bedrooms', 'bathrooms', 'price'}
-                    
-    #                 # Extract raw text first
-    #                 for field, selector in self.selectors['unit_data'].items():
-    #                     element = container.select_one(selector)
-    #                     if element:
-    #                         raw_text = element.text.strip()
-    #                         logger.info(raw_text)
-    #                         # Clean the text directly
-    #                         unit_data[field] = ' '.join(raw_text.split())
-                    
-    #                 # Transform the data
-    #                 transformed_data = {}
-    #                 for field, transformer_name in self.config.get('transformers', {}).items():
-    #                     if field in unit_data:
-    #                         try:
-    #                             transformed_data[field] = self.transformers.transform(
-    #                                 transformer_name, 
-    #                                 unit_data[field]
-    #                             )
-    #                         except Exception as e:
-    #                             logger.error(f"Error transforming {field}: {str(e)}")
-    #                             continue
-                    
-    #                 # Add unit number directly from raw data
-    #                 if 'unit_number' in unit_data:
-    #                     transformed_data['unit_number'] = unit_data['unit_number'].replace('Residence', '').strip()
-                    
-    #                 # Validate the transformed data
-    #                 if all(field in transformed_data for field in required_fields):
-    #                     logger.info(f"Successfully transformed unit: {transformed_data}")
-    #                     units.append(transformed_data)
-    #                 else:
-    #                     missing = required_fields - set(transformed_data.keys())
-    #                     logger.warning(f"Missing required fields {missing} in transformed data: {transformed_data}")
-    #                     logger.warning(f"Original unit data: {unit_data}")
-
-    #             except Exception as e:
-    #                 logger.error(f"Error parsing unit container: {str(e)}", exc_info=True)
-    #                 continue
-
-    #         return units
-
-    #     except Exception as e:
-    #         logger.error(f"Error parsing content: {str(e)}", exc_info=True)
-    #         raise
     async def _parse_content(self, html_content: str) -> List[Dict]:
         try:
             soup = BeautifulSoup(html_content, 'html.parser')
@@ -319,7 +306,91 @@ class ScraperEngine:
             unit['area_sqft'] > 0,
             unit['price'] > 0
         ])
+    def _db_get_or_create_source(self):
+        """Sync version of get or create source"""
+        return ScrapingSource.objects.get_or_create(
+            name=self.config['name'],
+            defaults={'base_url': self.config['url']}
+        )
     
-    
+    def _db_create_scraping_run(self, source):
+        """Sync version of create scraping run"""
+        return ScrapingRun.objects.create(
+            source=source,
+            start_time=timezone.now(),
+            status='in_progress'
+        )
+
+    def _db_get_or_create_building(self):
+        """Sync version of get or create building"""
+        return Building.objects.get_or_create(
+            name=self.config['building_info']['name'],
+            defaults=self.config['building_info']
+        )
+
+    def _db_get_stored_units(self, building):
+        """Sync version of get stored units"""
+        return set(Apartment.objects.filter(
+            building=building
+        ).values_list('unit_number', flat=True))
+
+    def _db_process_single_unit(self, building, unit_data, scraping_run):
+        """Sync version of process single unit"""
+        with transaction.atomic():
+            apartment, created = Apartment.objects.get_or_create(
+                building=building,
+                unit_number=unit_data['unit_number'],
+                defaults={
+                    'floor': unit_data.get('floor', 1),
+                    'bedrooms': Decimal(str(unit_data['bedrooms'])),
+                    'bathrooms': Decimal(str(unit_data['bathrooms'])),
+                    'area_sqft': unit_data.get('area_sqft', 0),
+                    'apartment_type': self._get_apartment_type(Decimal(str(unit_data['bedrooms']))),
+                    'status': 'available'
+                }
+            )
+
+            latest_price = ApartmentPrice.objects.filter(
+                apartment=apartment
+            ).order_by('-start_date').first()
+
+            current_price = Decimal(str(unit_data['price']))
+            
+            if not latest_price or latest_price.price != current_price:
+                ApartmentPrice.objects.create(
+                    apartment=apartment,
+                    price=current_price,
+                    start_date=timezone.now().date(),
+                    lease_term_months=unit_data.get('lease_term_months', 12)
+                )
+                
+                if not created and latest_price:
+                    PriceChange.objects.create(
+                        apartment=apartment,
+                        old_price=latest_price.price,
+                        new_price=current_price,
+                        scraping_run=scraping_run
+                    )
+
+    def _db_handle_removed_units(self, building, removed_units):
+        """Sync version of handle removed units"""
+        with transaction.atomic():
+            Apartment.objects.filter(
+                building=building,
+                unit_number__in=removed_units,
+                status='available'
+            ).update(
+                status='unavailable',
+                updated_at=timezone.now()
+            )
+
+    def _db_update_scraping_run(self, scraping_run, status, items_processed=0, error=None):
+        """Sync version of update scraping run"""
+        scraping_run.status = status
+        scraping_run.items_processed = items_processed
+        scraping_run.end_time = timezone.now()
+        if error:
+            scraping_run.error_log = error
+        scraping_run.save()
 # Add explicit print statements for debugging
 logger.info("Loaded scraper engine")

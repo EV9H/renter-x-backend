@@ -33,23 +33,44 @@ class BuildingViewSet(viewsets.ModelViewSet):
         serializer = ApartmentSerializer(apartments, many=True)
         return Response(serializer.data)
 
+# class ApartmentViewSet(viewsets.ModelViewSet):
+#     permission_classes = [AllowAny]
+
+#     queryset = Apartment.objects.all().order_by('id')
+#     serializer_class = ApartmentSerializer
+#     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
+#     filterset_fields = ['building', 'status', 'bedrooms', 'bathrooms']
+#     search_fields = ['unit_number', 'apartment_type']
+#     ordering_fields = ['area_sqft', 'floor', 'created_at']
+
+#     @action(detail=True, methods=['get'])
+#     def price_history(self, request, pk=None):
+#         apartment = self.get_object()
+#         prices = apartment.price_history.all().order_by('-start_date')
+#         serializer = ApartmentPriceSerializer(prices, many=True)
+#         return Response(serializer.data)
 class ApartmentViewSet(viewsets.ModelViewSet):
     permission_classes = [AllowAny]
-
-    queryset = Apartment.objects.all().order_by('id')
+    queryset = Apartment.objects.all()
     serializer_class = ApartmentSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['building', 'status', 'bedrooms', 'bathrooms']
-    search_fields = ['unit_number', 'apartment_type']
-    ordering_fields = ['area_sqft', 'floor', 'created_at']
-
-    @action(detail=True, methods=['get'])
-    def price_history(self, request, pk=None):
-        apartment = self.get_object()
-        prices = apartment.price_history.all().order_by('-start_date')
-        serializer = ApartmentPriceSerializer(prices, many=True)
-        return Response(serializer.data)
-
+    
+    def get_queryset(self):
+        queryset = Apartment.objects.all()
+        
+        # Get only current available apartments by default
+        status = self.request.query_params.get('status', 'available')
+        if status != 'all':
+            queryset = queryset.filter(status=status)
+            
+        # Include price history and changes
+        queryset = queryset.prefetch_related(
+            'price_history',
+            'price_changes'
+        ).select_related('building')
+        
+        return queryset
 class ApartmentPriceViewSet(viewsets.ModelViewSet):
     permission_classes = [AllowAny]
 

@@ -6,16 +6,39 @@ class BuildingSerializer(serializers.ModelSerializer):
         model = Building
         fields = '__all__'
 
-class ApartmentSerializer(serializers.ModelSerializer):
-    building_name = serializers.CharField(source='building.name', read_only=True)
-    current_price = serializers.SerializerMethodField()
+# class ApartmentSerializer(serializers.ModelSerializer):
+#     building_name = serializers.CharField(source='building.name', read_only=True)
+#     current_price = serializers.SerializerMethodField()
 
+#     class Meta:
+#         model = Apartment
+#         fields = [
+#             'id', 'building', 'building_name', 'unit_number', 'floor',
+#             'bedrooms', 'bathrooms', 'area_sqft', 'apartment_type',
+#             'status', 'features', 'current_price', 'created_at', 'updated_at'
+#         ]
+
+#     def get_current_price(self, obj):
+#         latest_price = obj.price_history.order_by('-start_date').first()
+#         if latest_price:
+#             return {
+#                 'price': latest_price.price,
+#                 'lease_term_months': latest_price.lease_term_months,
+#                 'is_special_offer': latest_price.is_special_offer,
+#                 'special_offer_details': latest_price.special_offer_details
+#             }
+#         return None
+class ApartmentSerializer(serializers.ModelSerializer):
+    current_price = serializers.SerializerMethodField()
+    price_changes = serializers.SerializerMethodField()
+    last_scraping_run = serializers.SerializerMethodField()
+    
     class Meta:
         model = Apartment
         fields = [
-            'id', 'building', 'building_name', 'unit_number', 'floor',
-            'bedrooms', 'bathrooms', 'area_sqft', 'apartment_type',
-            'status', 'features', 'current_price', 'created_at', 'updated_at'
+            'id', 'building', 'unit_number', 'floor', 'bedrooms', 
+            'bathrooms', 'area_sqft', 'status', 'current_price',
+            'price_changes', 'last_scraping_run'
         ]
 
     def get_current_price(self, obj):
@@ -23,12 +46,28 @@ class ApartmentSerializer(serializers.ModelSerializer):
         if latest_price:
             return {
                 'price': latest_price.price,
-                'lease_term_months': latest_price.lease_term_months,
-                'is_special_offer': latest_price.is_special_offer,
-                'special_offer_details': latest_price.special_offer_details
+                'start_date': latest_price.start_date,
+                'lease_term_months': latest_price.lease_term_months
             }
         return None
 
+    def get_price_changes(self, obj):
+        # Get last 5 price changes
+        changes = obj.price_changes.order_by('-detected_at')[:5]
+        return [{
+            'old_price': change.old_price,
+            'new_price': change.new_price,
+            'detected_at': change.detected_at
+        } for change in changes]
+
+    def get_last_scraping_run(self, obj):
+        last_change = obj.price_changes.order_by('-detected_at').first()
+        if last_change:
+            return {
+                'date': last_change.scraping_run.start_time,
+                'status': last_change.scraping_run.status
+            }
+        return None
 class ApartmentPriceSerializer(serializers.ModelSerializer):
     class Meta:
         model = ApartmentPrice
