@@ -32,3 +32,4 @@ class ScraperConfig(BaseModel):
         }
     )
     headers: Optional[Dict] = None
+    spliter_for_combined_bb: Optional[str] = None

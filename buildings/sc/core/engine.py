@@ -59,36 +59,36 @@ class ScraperEngine:
     async def scrape(self) -> List[Dict]:
         """Main scraping method with enhanced tracking"""
         try:
-            # Initialize scraping run
+            logger.info("# Initialize scraping run")
             source, _ = await sync_to_async(self._db_get_or_create_source)()
             scraping_run = await sync_to_async(self._db_create_scraping_run)(source)
             
-            # Get building
+            logger.info("# Get building")
             building, _ = await sync_to_async(self._db_get_or_create_building)()
             
-            # Fetch and parse content
+            logger.info("# Fetch and parse content")
             html_content = await self._fetch_page_with_playwright(self.config['url'])
             if not html_content:
                 raise Exception("Failed to fetch webpage content")
 
-            # Parse units
+            logger.info("# Parse units")
             current_units = await self._parse_content(html_content)
             
-            # Process units and track changes
+            logger.info("# Process units and track changes")
             stored_units = await sync_to_async(self._db_get_stored_units)(building)
             current_unit_numbers = set()
             
-            # Process current units
+            logger.info("# Process current units")
             for unit_data in current_units:
                 current_unit_numbers.add(unit_data['unit_number'])
                 await sync_to_async(self._db_process_single_unit)(building, unit_data, scraping_run)
             
-            # Handle removed units
+            logger.info("# Handle removed units")
             removed_units = stored_units - current_unit_numbers
             if removed_units:
                 await sync_to_async(self._db_handle_removed_units)(building, removed_units)
             
-            # Update scraping run status
+            logger.info("# Update scraping run status")
             await sync_to_async(self._db_update_scraping_run)(
                 scraping_run,
                 'completed',
@@ -136,7 +136,7 @@ class ScraperEngine:
                 # Scroll to load all content
                 for _ in range(10):
                     await page.evaluate("window.scrollBy(0, 500);")
-                    await asyncio.sleep(1)
+                    await asyncio.sleep(0.5)
 
                 # Wait for the elements to load
                 unit_list_selector = self.selectors['unit_list']
@@ -174,10 +174,11 @@ class ScraperEngine:
                         required_fields = {'unit_number', 'bedrooms', 'bathrooms', 'price'}
 
                         # Extract attributes directly from the container
-                        unit_data['unit_number'] = container.get('data-name', '').strip()
-                        unit_data['bedrooms'] = container.get('data-rooms', '').strip()
-                        unit_data['bathrooms'] = container.get('data-bath', '').strip()
-                        unit_data['price'] = container.get('data-rent', '').strip()
+                        
+                        unit_data['unit_number'] = container.get(self.selectors['unit_data']['unit_number'], '').strip()
+                        unit_data['bedrooms'] = container.get(self.selectors['unit_data']['bedrooms'], '').strip()
+                        unit_data['bathrooms'] = container.get(self.selectors['unit_data']['bathrooms'], '').strip()
+                        unit_data['price'] = container.get(self.selectors['unit_data']['price'], '').strip()
 
                         logger.debug(f"Extracted unit data: {unit_data}")
 
@@ -203,12 +204,22 @@ class ScraperEngine:
                             element = container.select_one(selector)
                             if element:
                                 raw_text = element.text.strip()
-                                logger.info(raw_text)
                                 # Clean the text directly
                                 unit_data[field] = ' '.join(raw_text.split())
                         
                         # Transform the data
                         transformed_data = {}
+                        # SPECIAL CASE: bedroom and bathroom is in the same field
+                        if "bedrooms_bathrooms" in unit_data.keys():
+                            bb_split = unit_data["bedrooms_bathrooms"].split(self.config['spliter_for_combined_bb'])
+                            if len(bb_split) > 1: # NON-studio
+                                unit_data['bathrooms'] = bb_split[0]
+                                unit_data['bedrooms'] = bb_split[1]
+                            else: # studio
+                                unit_data['bathrooms'] = "1 Bathroom"
+                                unit_data['bedrooms'] = bb_split[0]
+                            unit_data.pop('bedrooms_bathrooms')
+                        print("BEFORE TRANSFORMER", unit_data)
                         for field, transformer_name in self.config.get('transformers', {}).items():
                             if field in unit_data:
                                 try:
@@ -219,6 +230,7 @@ class ScraperEngine:
                                 except Exception as e:
                                     logger.error(f"Error transforming {field}: {str(e)}")
                                     continue
+                        print("AFTER TRANSFORMER", unit_data)
                         
                         # Add unit number directly from raw data
                         if 'unit_number' in unit_data:
@@ -236,7 +248,6 @@ class ScraperEngine:
                     except Exception as e:
                         logger.error(f"Error parsing unit container: {str(e)}", exc_info=True)
                         continue
-
             return units
         except Exception as e:
             logger.error(f"Error parsing content: {str(e)}", exc_info=True)

@@ -2,6 +2,8 @@ from rest_framework import viewsets, filters, status
 from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
+from django.db.models import Max
+
 from .models import Building, Apartment, ApartmentPrice, ScrapingSource, ScrapingRun, PriceChange
 from .serializers import (
     BuildingSerializer, ApartmentSerializer, ApartmentPriceSerializer,
@@ -54,7 +56,7 @@ class ApartmentViewSet(viewsets.ModelViewSet):
     queryset = Apartment.objects.all()
     serializer_class = ApartmentSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['building', 'status', 'bedrooms', 'bathrooms']
+    filterset_fields = ['building', 'status', 'bedrooms', 'bathrooms', "apartment_type"]
     
     def get_queryset(self):
         queryset = Apartment.objects.all()
@@ -90,13 +92,24 @@ class ScrapingSourceViewSet(viewsets.ModelViewSet):
 
 class ScrapingRunViewSet(viewsets.ModelViewSet):
     permission_classes = [AllowAny]
-
     queryset = ScrapingRun.objects.all()
     serializer_class = ScrapingRunSerializer
     filter_backends = [DjangoFilterBackend, filters.OrderingFilter]
     filterset_fields = ['source', 'status']
     ordering_fields = ['start_time', 'items_processed']
 
+    @action(detail=False, methods=['GET'])
+    def latest_end_time(self, request):
+        latest_end_time = ScrapingRun.objects.filter(
+            status='completed'
+        ).aggregate(
+            latest_end=Max('end_time')
+        )['latest_end']
+
+        return Response({
+            'latest_end_time': latest_end_time
+        })
+    
 class PriceChangeViewSet(viewsets.ModelViewSet):
     permission_classes = [AllowAny]
 

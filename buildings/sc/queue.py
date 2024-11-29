@@ -208,46 +208,42 @@ class ScraperQueue:
     async def run_scraper(self, config: ScraperConfig):
         """Run a single scraper and save results"""
         try:
-            # Get or create source
+            logger.info("Queue# Get or create source")
             source = await sync_to_async(ScrapingSource.objects.get_or_create)(
                 name=config.name,
                 defaults={'base_url': config.url}
             )
-            source = source[0]  # get_or_create returns tuple (object, created)
+            source = source[0]  
 
-            # Create scraping run
+            logger.info("Queue# Create scraping run")
             scraping_run = await sync_to_async(ScrapingRun.objects.create)(
                 source=source,
                 start_time=timezone.now(),
                 status=ScrapingRun.RunStatus.IN_PROGRESS
             )
 
-            # Get or create building
+            logger.info("Queue# Get or create building")
             building = await sync_to_async(Building.objects.get_or_create)(
                 name=config.building_info['name'],
                 defaults=config.building_info
             )
-            building = building[0]  # get_or_create returns tuple (object, created)
+            building = building[0]  
 
-            # Run scraper
+            logger.info("Queue# Run scraper")
             engine = ScraperEngine(config.dict())
             units = await engine.scrape()
 
-            # Process each unit
+            logger.info("Queue# Process each unit")
             for unit in units:
-                try:
-                    await self._process_unit_data(building, unit)
-                except Exception as e:
-                    # logger.error(f"Error processing unit: {str(e)}")
-                    pass
-            # Update scraping run status
+                await self._process_unit_data(building, unit)
+                
+            logger.info("Queue# Update scraping run status")
             await sync_to_async(self._update_scraping_run)(
                 scraping_run,
                 ScrapingRun.RunStatus.COMPLETED,
                 len(units)
             )
 
-            # logger.info(f"Successfully processed {len(units)} units for {config.name}")
 
         except Exception as e:
             # logger.error(f"Error running scraper for {config.name}: {str(e)}")

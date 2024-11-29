@@ -1,0 +1,32 @@
+name: Sven
+url: https://www.svenlic.com/availabilities
+parser_type: html
+spliter_for_combined_bb: /
+building_info:
+  name: Sven
+  address: "29-59 Northern Blvd"
+  postal_code: "11101"
+  city: Long Island City
+  state: NY
+  website: https://www.svenlic.com/
+  amenities:
+    fitness_center: true
+    pool: true
+    lounge: true
+    doorman: true
+
+selectors:
+  unit_list: ".listing-row"
+  unit_data:
+    unit_number: "th[scope='row'] a"
+    bedrooms_bathrooms: "td[role='cell'] p.uppercase"  
+    price: "td[role='cell'] p:contains('$')"
+    availability_date: "td[role='cell'] p:contains('December')"  
+
+transformers:
+  availability_date: transform_date
+  price: extract_price
+  bedrooms: extract_bedrooms
+  bathrooms: extract_bathrooms
+headers:
+  User-Agent: "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/91.0.4472.124 Safari/537.36"
