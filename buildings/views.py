@@ -18,6 +18,7 @@ from django.contrib.auth.password_validation import validate_password
 from django.core.exceptions import ValidationError
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework_simplejwt.tokens import RefreshToken
+from decimal import Decimal
 
 class BuildingViewSet(viewsets.ModelViewSet):
     permission_classes = [AllowAny]
@@ -34,7 +35,55 @@ class BuildingViewSet(viewsets.ModelViewSet):
         apartments = building.apartments.all()
         serializer = ApartmentSerializer(apartments, many=True)
         return Response(serializer.data)
+    
+    @action(detail=True, methods=['get'])
+    def stats(self, request, pk=None):
+        building = self.get_object()
+        apartments = building.apartments.all()
+        
+        # Group by apartment type and calculate stats
+        stats = {}
+        apartment_types = set()
+        
+        for apt in apartments:
+            apt_type = apt.apartment_type
+            apartment_types.add(apt_type)
+            
+            if apt_type not in stats:
+                stats[apt_type] = {
+                    'count': 0,
+                    'available_count': 0,
+                    'avg_price': Decimal('0'),
+                    'min_price': None,
+                    'max_price': None,
+                    'total_price': Decimal('0'),
+                    'available_units': []
+                }
+            
+            current_price = apt.price_history.order_by('-start_date').first()
+            if current_price:
+                price = current_price.price
+                stats[apt_type]['count'] += 1
+                
+                if apt.status == 'available':
+                    stats[apt_type]['available_count'] += 1
+                    stats[apt_type]['total_price'] += price
+                    stats[apt_type]['available_units'].append({
+                        'unit': apt.unit_number,
+                        'price': price
+                    })
+                    
+                    if stats[apt_type]['min_price'] is None or price < stats[apt_type]['min_price']:
+                        stats[apt_type]['min_price'] = price
+                    if stats[apt_type]['max_price'] is None or price > stats[apt_type]['max_price']:
+                        stats[apt_type]['max_price'] = price
 
+        # Calculate averages for available units
+        for apt_type in stats:
+            if stats[apt_type]['available_count'] > 0:
+                stats[apt_type]['avg_price'] = stats[apt_type]['total_price'] / stats[apt_type]['available_count']
+
+        return Response(stats)
 # class ApartmentViewSet(viewsets.ModelViewSet):
 #     permission_classes = [AllowAny]
 
