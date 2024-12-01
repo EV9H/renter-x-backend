@@ -213,8 +213,8 @@ class ScraperEngine:
                         if "bedrooms_bathrooms" in unit_data.keys():
                             bb_split = unit_data["bedrooms_bathrooms"].split(self.config['spliter_for_combined_bb'])
                             if len(bb_split) > 1: # NON-studio
-                                unit_data['bathrooms'] = bb_split[0]
-                                unit_data['bedrooms'] = bb_split[1]
+                                unit_data['bedrooms'] = bb_split[0]
+                                unit_data['bathrooms'] = bb_split[1]
                             else: # studio
                                 unit_data['bathrooms'] = "1 Bathroom"
                                 unit_data['bedrooms'] = bb_split[0]
