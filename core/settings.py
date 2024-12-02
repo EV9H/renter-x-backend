@@ -30,7 +30,6 @@ SECRET_KEY = os.getenv('DJANGO_SECRET_KEY', 'django-insecure-+3z6-=y+hkt7emx76vg
 DEBUG = os.getenv('DEBUG', 'False') == 'True'
 ALLOWED_HOSTS = os.getenv('ALLOWED_HOSTS', '').split(',')
 
-
 # Application definition
 
 INSTALLED_APPS = [
@@ -110,11 +109,11 @@ WSGI_APPLICATION = "core.wsgi.application"
 DATABASES = {
     'default': {
         'ENGINE': 'django.db.backends.postgresql',
-        'NAME': os.getenv('DATABASE_NAME', 'postgres'),
-        'USER': os.getenv('DATABASE_USER', 'postgres'),
-        'PASSWORD': os.getenv('DATABASE_PASSWORD', 'postgres'),
-        'HOST': os.getenv('DATABASE_HOST', 'localhost'),
-        'PORT': os.getenv('DATABASE_PORT', '5432'),
+        'NAME': os.getenv('PGDATABASE', 'postgres'),
+        'USER': os.getenv('PGUSER', 'postgres'),
+        'PASSWORD': os.getenv('PGPASSWORD', 'postgres'),
+        'HOST': os.getenv('PGHOST', 'host.docker.internal'),
+        'PORT': os.getenv('PGPORT', '32769'),
     }
 }
 
