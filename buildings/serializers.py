@@ -35,14 +35,11 @@ class ApartmentSerializer(serializers.ModelSerializer):
     
     class Meta:
         model = Apartment
-        fields = [
-            'id', 'building', 'unit_number', 'floor', 'bedrooms', 
-            'bathrooms', 'area_sqft', 'status', 'current_price',
-            'price_changes', 'last_scraping_run','apartment_type'
-        ]
+        fields = '__all__'
+        read_only_fields = ['id', 'created_at', 'updated_at']
 
     def get_current_price(self, obj):
-        latest_price = obj.price_history.order_by('-start_date').first()
+        latest_price = obj.price_history.order_by('-start_date', '-created_at').first()
         if latest_price:
             return {
                 'price': latest_price.price,
@@ -62,10 +59,10 @@ class ApartmentSerializer(serializers.ModelSerializer):
 
     def get_last_scraping_run(self, obj):
         last_change = obj.price_changes.order_by('-detected_at').first()
-        if last_change:
+        if last_change and last_change.scraping_run:
             return {
+                'id': last_change.scraping_run.id,
                 'date': last_change.scraping_run.start_time,
-                'status': last_change.scraping_run.status
             }
         return None
 class ApartmentPriceSerializer(serializers.ModelSerializer):
@@ -93,14 +90,22 @@ from .models import NewUserProfile
 
 class UserProfileSerializer(serializers.ModelSerializer):
     email = serializers.EmailField(source='user.email', read_only=True)
-
     class Meta:
         model = NewUserProfile
-        fields = [
-            'id', 'email', 'phone_number', 'preferred_contact_method',
-            'notification_preferences', 'saved_searches', 
-            'created_at', 'updated_at'
-        ]
+        fields = ['id', 'email','phone_number', 'preferred_contact_method',
+            'apartment_preferences']
+
+    def create(self, validated_data):
+        user = validated_data.pop('user', None)
+        if not user:
+            raise serializers.ValidationError({"user": "This field is required."})
+        return NewUserProfile.objects.create(user=user, **validated_data)
+
+    def update(self, instance, validated_data):
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+        instance.save()
+        return instance
 
 class ApartmentWatchlistSerializer(serializers.ModelSerializer):
     apartment_details = ApartmentSerializer(source='apartment', read_only=True)

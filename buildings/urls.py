@@ -5,8 +5,8 @@ from .views import (
     ScrapingSourceViewSet, ScrapingRunViewSet, PriceChangeViewSet,
     UserProfileViewSet, ApartmentWatchlistViewSet,BuildingWatchlistViewSet,
     WatchlistAlertViewSet,
-    # BuildingAdminViewSet, 
-    # ApartmentAdminViewSet,
+    AdminBuildingViewSet, 
+    AdminApartmentViewSet,
     # PriceChangeAdminViewSet
 )
 
@@ -23,9 +23,8 @@ router.register(r'profile', UserProfileViewSet, basename='profile')
 router.register(r'apartment-watchlist', ApartmentWatchlistViewSet, basename='apartment-watchlist')
 router.register(r'building-watchlist', BuildingWatchlistViewSet, basename='building-watchlist')
 router.register(r'watchlist-alerts', WatchlistAlertViewSet, basename='watchlist-alerts')
-# router.register(r'admin/buildings', BuildingAdminViewSet)
-# router.register(r'admin/apartments', ApartmentAdminViewSet)
-# router.register(r'admin/price-changes', PriceChangeAdminViewSet)
+router.register(r'admin/buildings', AdminBuildingViewSet, basename='admin-building')
+router.register(r'admin/apartments', AdminApartmentViewSet, basename='admin-apartment')
 urlpatterns = [
     path('', include(router.urls)),
     path('auth/signup/', views.signup, name='signup'),

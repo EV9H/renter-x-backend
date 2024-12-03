@@ -1,4 +1,4 @@
-from django.db.models.signals import post_save
+from django.db.models.signals import post_save, pre_save
 from django.dispatch import receiver
 from django.contrib.auth.models import User
 from django.utils import timezone
@@ -107,24 +107,21 @@ def create_new_apartment_alerts(sender, instance, created, **kwargs):
                 message=f'New {instance.apartment_type} unit {instance.unit_number} available{price_str} in {instance.building.name}.'
             )
 
-@receiver(post_save, sender=Apartment)
+@receiver(pre_save, sender=Apartment)
 def create_status_change_alerts(sender, instance, **kwargs):
     try:
         old_instance = Apartment.objects.get(pk=instance.pk)
-        print("oldinstance", old_instance.status)
-
-    except Apartment.DoesNotExist:
-        # This is a new apartment; no status change to process
-        return
-    print("STATUS CHANGE!")
-    print("new instance", instance.status)
-    if old_instance.status != instance.status:
-        print("STATUS CHANGE! 02")
-        if instance.status == 'unavailable':
+        print("TRIGGER STATUS ALERT")
+        if old_instance.status != instance.status :
+            print("DETECTS CHANGE!")
             watchlist_items = ApartmentWatchlist.objects.filter(
                 apartment=instance,
             ).select_related('user')
-            message = f"Apartment {instance.unit_number} in {instance.building.name} is now unavailable."
+            
+            message = f"Apartment {instance.unit_number} in {instance.building.name} is now {instance.status}."
+            
+            print(message)
+            print("watchlist_items: ", watchlist_items)
             for watchlist_item in watchlist_items:
                 WatchlistAlert.objects.create(
                     user=watchlist_item.user,
@@ -132,3 +129,9 @@ def create_status_change_alerts(sender, instance, **kwargs):
                     alert_type='status_change',
                     message=message
                 )
+                
+    except Apartment.DoesNotExist:
+        # This is a new apartment; no status change to process
+        print("new apartment so no status change")
+        pass
+

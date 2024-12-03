@@ -138,14 +138,12 @@ class PriceChange(models.Model):
     old_price = models.DecimalField(max_digits=10, decimal_places=2)
     new_price = models.DecimalField(max_digits=10, decimal_places=2)
     detected_at = models.DateTimeField(auto_now_add=True)
-    scraping_run = models.ForeignKey(ScrapingRun, on_delete=models.CASCADE, related_name='price_changes')
-    
+    scraping_run = models.ForeignKey(ScrapingRun, on_delete=models.CASCADE, null=True, blank=True, related_name='price_changes')
 
     class Meta:
         indexes = [
             models.Index(fields=['detected_at']),
         ]
-
 
 # class CustomUserManager(BaseUserManager):
 #     def create_user(self, email, password=None, **extra_fields):
@@ -198,19 +196,12 @@ class NewUserProfile(models.Model):
         choices=[('email', 'Email'), ('phone', 'Phone')],
         default='email'
     )
-    notification_preferences = models.JSONField(default=dict)
-    saved_searches = models.JSONField(default=list)
+    apartment_preferences = models.JSONField(default=dict)  # Store preferences as JSON
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
     def __str__(self):
         return f"Profile for {self.user.email}"
-
-    class Meta:
-        indexes = [
-            models.Index(fields=['created_at']),
-            models.Index(fields=['phone_number']),
-        ]
     
 
 

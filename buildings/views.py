@@ -4,6 +4,8 @@ from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Max
 from .models import Building, Apartment, ApartmentPrice, ScrapingSource, ScrapingRun, PriceChange, ApartmentWatchlist, BuildingWatchlist,WatchlistAlert
+from django.utils import timezone
+from django.core.exceptions import ObjectDoesNotExist
 
 from .serializers import (
     BuildingSerializer, ApartmentSerializer, ApartmentPriceSerializer,
@@ -20,6 +22,10 @@ from django.core.exceptions import ValidationError
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework_simplejwt.tokens import RefreshToken
 from decimal import Decimal
+
+import logging
+
+logger = logging.getLogger(__name__)
 
 class BuildingViewSet(viewsets.ModelViewSet):
     permission_classes = [AllowAny]
@@ -108,6 +114,10 @@ class ApartmentViewSet(viewsets.ModelViewSet):
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
     filterset_fields = ['building', 'status', 'bedrooms', 'bathrooms', "apartment_type"]
     
+    @action(detail=False, methods=['GET'])
+    def debug(self, request):
+        apartments = Apartment.objects.all().values('id', 'unit_number', 'building_id')
+        return Response(apartments)
     def get_queryset(self):
         queryset = Apartment.objects.all()
         
@@ -123,6 +133,42 @@ class ApartmentViewSet(viewsets.ModelViewSet):
         ).select_related('building')
         
         return queryset
+    def get_object(self):
+        try:
+            obj = super().get_object()
+            print(f"Found apartment with ID: {obj.id}")
+            return obj
+        except Exception as e:
+            print(f"Error getting apartment: {str(e)}")
+            raise
+    def update(self, request, *args, **kwargs):
+        try:
+            apartment_id = kwargs.get('pk')
+            # First check if apartment exists
+            try:
+                instance = Apartment.objects.get(id=apartment_id)
+            except Apartment.DoesNotExist:
+                return Response(
+                    {"detail": f"Apartment with ID {apartment_id} does not exist."},
+                    status=status.HTTP_404_NOT_FOUND
+                )
+
+            print(f"Found apartment {instance.id}, proceeding with update")
+            serializer = self.get_serializer(instance, data=request.data)
+            
+            if not serializer.is_valid():
+                print("Validation errors:", serializer.errors)
+                return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+                
+            self.perform_update(serializer)
+            return Response(serializer.data)
+        except Exception as e:
+            print(f"Update error: {str(e)}")
+            return Response(
+                {"detail": str(e)}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
 class ApartmentPriceViewSet(viewsets.ModelViewSet):
     permission_classes = [AllowAny]
 
@@ -253,16 +299,26 @@ def login(request):
 class UserProfileViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated]
     serializer_class = UserProfileSerializer
-
+    
     def get_queryset(self):
         return NewUserProfile.objects.filter(user=self.request.user)
 
     def get_object(self):
         return self.get_queryset().first()
 
-    @action(detail=False, methods=['get'])
+    @action(detail=False, methods=['get', 'patch'], url_path='me')
     def me(self, request):
         profile = self.get_object()
+        if not profile:
+            return Response({"detail": "Profile not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        if request.method == 'PATCH':
+            serializer = self.get_serializer(profile, data=request.data, partial=True)
+            if serializer.is_valid():
+                serializer.save()
+                return Response(serializer.data)
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
         serializer = self.get_serializer(profile)
         return Response(serializer.data)
 
@@ -365,3 +421,100 @@ class WatchlistAlertViewSet(viewsets.ModelViewSet):
 
 
 
+class AdminBuildingViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAdminUser]
+    queryset = Building.objects.all()
+    serializer_class = BuildingSerializer
+
+    @action(detail=True, methods=['post'])
+    def bulk_update_amenities(self, request, pk=None):
+        building = self.get_object()
+        building.amenities.update(request.data)
+        building.save()
+        return Response(building.amenities)
+
+class AdminApartmentViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAdminUser]
+    queryset = Apartment.objects.all()
+    serializer_class = ApartmentSerializer
+
+    @action(detail=True, methods=['post'])
+    def update_price(self, request, pk=None):
+        logger.info(f"Received request to update price for apartment ID {pk}")
+
+        try:
+            apartment = self.get_object()
+            logger.info(f"Apartment found: {apartment}")
+        except ObjectDoesNotExist:
+            logger.error(f"Apartment with ID {pk} not found.")
+            return Response({"detail": "Apartment not found."}, status=status.HTTP_404_NOT_FOUND)
+
+        price = request.data.get('price')
+        lease_term_months = request.data.get('lease_term_months')
+
+        if not price or not lease_term_months:
+            logger.warning(f"Invalid data provided: price={price}, lease_term_months={lease_term_months}")
+            return Response({"detail": "Price and lease term are required."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Get the most recent price
+        latest_price_entry = apartment.price_history.order_by('-start_date').first()
+        logger.info(f"Latest price entry: {latest_price_entry}")
+
+        # Check if the price is the same
+        if latest_price_entry and latest_price_entry.price == float(price):
+            logger.info("Price is unchanged; no update required.")
+            return Response({"detail": "Price is unchanged."}, status=status.HTTP_400_BAD_REQUEST)
+
+        # Create a new price entry
+        try:
+            new_price_entry = ApartmentPrice.objects.create(
+                apartment=apartment,
+                price=price,
+                lease_term_months=lease_term_months,
+                start_date=timezone.now()
+            )
+            logger.info(f"New price entry created: {new_price_entry}")
+        except Exception as e:
+            logger.error(f"Failed to create new price entry: {e}")
+            return Response({"detail": "Failed to update price."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        # Record the price change
+        if latest_price_entry:
+            try:
+                price_change = PriceChange.objects.create(
+                    apartment=apartment,
+                    old_price=latest_price_entry.price,
+                    new_price=price,
+                    scraping_run=None  # Replace with appropriate ScrapingRun if applicable
+                )
+                logger.info(f"Price change recorded: {price_change}")
+            except Exception as e:
+                logger.error(f"Failed to create PriceChange entry: {e}")
+                return Response({"detail": "Failed to record price change."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+        else:
+            logger.info("No previous price entry found; skipping price change record.")
+
+        return Response({"detail": "Price updated successfully."}, status=status.HTTP_200_OK)
+
+    @action(detail=True, methods=['post'])
+    def update_status(self, request, pk=None):
+        apartment = self.get_object()
+        new_status = request.data.get('status')
+        
+        if new_status not in [choice[0] for choice in Apartment.ApartmentStatus.choices]:
+            return Response(
+                {'error': 'Invalid status'}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
+        
+        apartment.status = new_status
+        apartment.save()
+        return Response({'status': 'success'})
+
+    @action(detail=False, methods=['post'])
+    def bulk_create(self, request):
+        serializer = self.get_serializer(data=request.data, many=True)
+        if serializer.is_valid():
+            self.perform_create(serializer)
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
