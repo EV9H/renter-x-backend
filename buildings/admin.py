@@ -22,3 +22,18 @@ from django.contrib.auth.models import User
 # admin.site.register(CustomUser, CustomUserAdmin)
 
 # admin.site.register(User, UserAdmin)
+
+from .models import ApartmentWatchlist, BuildingWatchlist
+@admin.register(ApartmentWatchlist)
+class ApartmentWatchlistAdmin(admin.ModelAdmin):
+    list_display = ('user', 'apartment', 'notify_price_change', 'notify_availability_change', 'created_at')
+    list_filter = ('notify_price_change', 'notify_availability_change')
+    search_fields = ('user__email', 'apartment__unit_number')
+    date_hierarchy = 'created_at'
+
+@admin.register(BuildingWatchlist)
+class BuildingWatchlistAdmin(admin.ModelAdmin):
+    list_display = ('user', 'building', 'notify_new_units', 'unit_type_preference', 'max_price', 'created_at')
+    list_filter = ('notify_new_units', 'unit_type_preference')
+    search_fields = ('user__email', 'building__name')
+    date_hierarchy = 'created_at'

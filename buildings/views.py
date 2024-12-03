@@ -3,15 +3,16 @@ from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Max
+from .models import Building, Apartment, ApartmentPrice, ScrapingSource, ScrapingRun, PriceChange, ApartmentWatchlist, BuildingWatchlist,WatchlistAlert
 
-from .models import Building, Apartment, ApartmentPrice, ScrapingSource, ScrapingRun, PriceChange
 from .serializers import (
     BuildingSerializer, ApartmentSerializer, ApartmentPriceSerializer,
     ScrapingSourceSerializer, ScrapingRunSerializer, PriceChangeSerializer,
-    UserProfileSerializer
+    UserProfileSerializer, ApartmentWatchlistSerializer, BuildingWatchlistSerializer, 
+    WatchlistAlertSerializer
 )
 
-from rest_framework.permissions import AllowAny, IsAuthenticated
+from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
 from django.contrib.auth import authenticate, get_user_model
 from .models import NewUserProfile
 from django.contrib.auth.password_validation import validate_password
@@ -292,3 +293,75 @@ class UserProfileViewSet(viewsets.ModelViewSet):
         return Response({
             'notification_preferences': profile.notification_preferences
         })
+
+
+from rest_framework.exceptions import ValidationError
+from django.db import IntegrityError
+
+class BuildingWatchlistViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    serializer_class = BuildingWatchlistSerializer
+
+    def get_queryset(self):
+        return BuildingWatchlist.objects.filter(user=self.request.user)
+
+    def perform_create(self, serializer):
+        try:
+            serializer.save(user=self.request.user)
+        except IntegrityError:
+            # Instead of throwing an error, return the existing watchlist item
+            building_id = serializer.validated_data['building'].id
+            existing_item = BuildingWatchlist.objects.get(
+                user=self.request.user,
+                building_id=building_id
+            )
+            serializer.instance = existing_item
+
+class ApartmentWatchlistViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    serializer_class = ApartmentWatchlistSerializer
+
+    def get_queryset(self):
+        return ApartmentWatchlist.objects.filter(user=self.request.user)
+
+    def perform_create(self, serializer):
+        try:
+            serializer.save(user=self.request.user)
+        except IntegrityError:
+            # Instead of throwing an error, return the existing watchlist item
+            apartment_id = serializer.validated_data['apartment'].id
+            existing_item = ApartmentWatchlist.objects.get(
+                user=self.request.user,
+                apartment_id=apartment_id
+            )
+            serializer.instance = existing_item
+
+
+class WatchlistAlertViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAuthenticated]
+    serializer_class = WatchlistAlertSerializer
+
+    def get_queryset(self):
+        return WatchlistAlert.objects.filter(
+            user=self.request.user
+        ).select_related(
+            'building',
+            'apartment'
+        ).order_by('-created_at')
+
+    @action(detail=True, methods=['POST'])
+    def mark_as_read(self, request, pk=None):
+        alert = self.get_object()
+        alert.read = True
+        alert.save()
+        return Response(self.get_serializer(alert).data)
+
+    @action(detail=False, methods=['POST'])
+    def mark_all_as_read(self, request):
+        self.get_queryset().update(read=True)
+        return Response({'status': 'success'})
+
+
+
+
+

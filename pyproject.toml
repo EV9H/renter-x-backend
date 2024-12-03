@@ -2,7 +2,7 @@
 name = "renterx"
 version = "0.1.0"
 description = "RenterX Backend"
-authors = ["Your Name <your.email@example.com>"]
+authors = ["Haozhou Huang <your.email@example.com>"]
 
 [tool.poetry.dependencies]
 python = "^3.11"

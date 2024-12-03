@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Building, Apartment, ApartmentPrice, ScrapingSource, ScrapingRun, PriceChange
+from .models import Building, Apartment, ApartmentPrice, ScrapingSource, ScrapingRun, PriceChange, ApartmentWatchlist, BuildingWatchlist, WatchlistAlert
 
 class BuildingSerializer(serializers.ModelSerializer):
     class Meta:
@@ -38,7 +38,7 @@ class ApartmentSerializer(serializers.ModelSerializer):
         fields = [
             'id', 'building', 'unit_number', 'floor', 'bedrooms', 
             'bathrooms', 'area_sqft', 'status', 'current_price',
-            'price_changes', 'last_scraping_run'
+            'price_changes', 'last_scraping_run','apartment_type'
         ]
 
     def get_current_price(self, obj):
@@ -101,3 +101,35 @@ class UserProfileSerializer(serializers.ModelSerializer):
             'notification_preferences', 'saved_searches', 
             'created_at', 'updated_at'
         ]
+
+class ApartmentWatchlistSerializer(serializers.ModelSerializer):
+    apartment_details = ApartmentSerializer(source='apartment', read_only=True)
+
+    class Meta:
+        model = ApartmentWatchlist
+        fields = ['id', 'apartment', 'apartment_details', 'notify_price_change', 
+                 'notify_availability_change', 'created_at', 'last_notified']
+        read_only_fields = ['created_at', 'last_notified']
+
+class BuildingWatchlistSerializer(serializers.ModelSerializer):
+    building_details = BuildingSerializer(source='building', read_only=True)
+
+    class Meta:
+        model = BuildingWatchlist
+        fields = ['id', 'building', 'building_details', 'notify_new_units', 
+                 'unit_type_preference', 'max_price', 'created_at', 'last_notified']
+        read_only_fields = ['created_at', 'last_notified']
+
+
+class WatchlistAlertSerializer(serializers.ModelSerializer):
+    building_details = BuildingSerializer(source='building', read_only=True)
+    apartment_details = ApartmentSerializer(source='apartment', read_only=True)
+
+    class Meta:
+        model = WatchlistAlert
+        fields = [
+            'id', 'alert_type', 'message', 'created_at', 'read',
+            'building', 'building_details',
+            'apartment', 'apartment_details'
+        ]
+        read_only_fields = ['created_at']

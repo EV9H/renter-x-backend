@@ -139,6 +139,7 @@ class PriceChange(models.Model):
     new_price = models.DecimalField(max_digits=10, decimal_places=2)
     detected_at = models.DateTimeField(auto_now_add=True)
     scraping_run = models.ForeignKey(ScrapingRun, on_delete=models.CASCADE, related_name='price_changes')
+    
 
     class Meta:
         indexes = [
@@ -186,7 +187,6 @@ class NewUserManager(UserManager):
         return user
 
 class NewUserProfile(models.Model):
-    objects = NewUserManager()
     user = models.OneToOneField(
         User, 
         on_delete=models.CASCADE,
@@ -205,13 +205,67 @@ class NewUserProfile(models.Model):
 
     def __str__(self):
         return f"Profile for {self.user.email}"
+
+    class Meta:
+        indexes = [
+            models.Index(fields=['created_at']),
+            models.Index(fields=['phone_number']),
+        ]
     
 
 
-from django.db.models.signals import post_save
-from django.dispatch import receiver
+class ApartmentWatchlist(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='apartment_watchlist')
+    apartment = models.ForeignKey('Apartment', on_delete=models.CASCADE)
+    notify_price_change = models.BooleanField(default=True)
+    notify_availability_change = models.BooleanField(default=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_notified = models.DateTimeField(null=True, blank=True)
+    
+    class Meta:
+        unique_together = ['user', 'apartment']
+        indexes = [
+            models.Index(fields=['created_at']),
+            models.Index(fields=['last_notified']),
+        ]
 
-@receiver(post_save, sender=User)
-def create_user_profile(sender, instance, created, **kwargs):
-    if created:
-        NewUserProfile.objects.create(user=instance)
+class BuildingWatchlist(models.Model):
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='building_watchlist')
+    building = models.ForeignKey('Building', on_delete=models.CASCADE)
+    notify_new_units = models.BooleanField(default=True)
+    unit_type_preference = models.CharField(max_length=50, null=True, blank=True)
+    max_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    last_notified = models.DateTimeField(null=True, blank=True)
+    
+    class Meta:
+        unique_together = ['user', 'building']
+        indexes = [
+            models.Index(fields=['created_at']),
+            models.Index(fields=['last_notified']),
+            models.Index(fields=['unit_type_preference']),
+        ]
+
+class WatchlistAlert(models.Model):
+    ALERT_TYPES = (
+        ('new_unit', 'New Unit Available'),
+        ('price_change', 'Price Change'),
+        ('status_change', 'Status Change'),
+    )
+
+    user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='watchlist_alerts')
+    building = models.ForeignKey('Building', on_delete=models.CASCADE, null=True, blank=True)
+    apartment = models.ForeignKey('Apartment', on_delete=models.CASCADE, null=True, blank=True)
+    alert_type = models.CharField(max_length=20, choices=ALERT_TYPES)
+    message = models.TextField()
+    created_at = models.DateTimeField(auto_now_add=True)
+    read = models.BooleanField(default=False)
+    
+    class Meta:
+        ordering = ['-created_at']
+        indexes = [
+            models.Index(fields=['created_at']),
+            models.Index(fields=['read']),
+            models.Index(fields=['alert_type']),
+            models.Index(fields=['user', 'read']),
+        ]

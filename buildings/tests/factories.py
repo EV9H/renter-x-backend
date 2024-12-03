@@ -52,3 +52,21 @@ class ApartmentPriceFactory(factory.django.DjangoModelFactory):
     special_offer_details = factory.LazyAttribute(
         lambda o: fake.sentence() if o.is_special_offer else None
     )
+
+class ApartmentWatchlistFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = ApartmentWatchlist
+
+    user = factory.SubFactory(UserFactory)
+    apartment = factory.SubFactory(ApartmentFactory)
+    notify_price_change = True
+    notify_availability_change = True
+
+class BuildingWatchlistFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = BuildingWatchlist
+
+    user = factory.SubFactory(UserFactory)
+    building = factory.SubFactory(BuildingFactory)
+    notify_new_units = True
+    unit_type_preference = factory.Iterator(['Studio', '1B1B', '2B2B'])
