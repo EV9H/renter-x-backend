@@ -32,7 +32,7 @@ class BuildingViewSet(viewsets.ModelViewSet):
     queryset = Building.objects.all().order_by('id')
     serializer_class = BuildingSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['postal_code', 'city', 'state']
+    filterset_fields = ['postal_code', 'city', 'state','region']
     search_fields = ['name', 'address']
     ordering_fields = ['name', 'created_at']
 

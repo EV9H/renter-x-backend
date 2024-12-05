@@ -1,8 +1,31 @@
+# buildings/tests/factories.py
 import factory
 from faker import Faker
-from buildings.models import Building, Apartment, ApartmentPrice
+from django.contrib.auth.models import User
+from buildings.models import (
+    Building, Apartment, ApartmentPrice, 
+    ApartmentWatchlist, BuildingWatchlist,
+    Region
+)
 
 fake = Faker()
+
+class UserFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = User
+
+    username = factory.Sequence(lambda n: f'user_{n}')
+    email = factory.LazyAttribute(lambda o: f'{o.username}@example.com')
+    password = factory.PostGenerationMethodCall('set_password', 'testpass123')
+
+class RegionFactory(factory.django.DjangoModelFactory):
+    class Meta:
+        model = Region
+
+    name = factory.Faker('city')
+    borough = factory.Iterator(['MAN', 'BRK', 'QNS', 'BRX', 'NJ'])
+    neighborhood = factory.Iterator(['LES', 'FID', 'HEL', 'CHE', 'UES'])
+    description = factory.Faker('text')
 
 class BuildingFactory(factory.django.DjangoModelFactory):
     class Meta:
@@ -14,6 +37,7 @@ class BuildingFactory(factory.django.DjangoModelFactory):
     city = factory.Faker('city')
     state = factory.Faker('state_abbr')
     website = factory.Faker('url')
+    region = factory.SubFactory(RegionFactory)
     amenities = factory.Dict({
         'pool': factory.Faker('boolean'),
         'gym': factory.Faker('boolean'),
@@ -70,3 +94,4 @@ class BuildingWatchlistFactory(factory.django.DjangoModelFactory):
     building = factory.SubFactory(BuildingFactory)
     notify_new_units = True
     unit_type_preference = factory.Iterator(['Studio', '1B1B', '2B2B'])
+    max_price = factory.LazyFunction(lambda: fake.random_int(min=2000, max=10000))

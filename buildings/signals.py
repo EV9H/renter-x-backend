@@ -60,13 +60,16 @@ def create_new_unit_alerts(sender, instance, created, **kwargs):
 @receiver(post_save, sender=PriceChange)
 def create_price_change_alerts(sender, instance, created, **kwargs):
     if created:
-        # Handle apartment watchlist alerts (no preference filtering)
+        # To avoid duplicates, we'll get all relevant watchlist items in one query
+        affected_users = set()
+
+        # Add users from apartment watchlist
         apartment_watchlist_items = ApartmentWatchlist.objects.filter(
             apartment=instance.apartment,
             notify_price_change=True
         ).select_related('user')
         
-        # Handle building watchlist alerts (with preference filtering)
+        # Add users from building watchlist
         building_watchlist_items = BuildingWatchlist.objects.filter(
             building=instance.apartment.building,
             notify_new_units=True
@@ -80,19 +83,23 @@ def create_price_change_alerts(sender, instance, created, **kwargs):
                   f"{abs(price_change):.1f}% "
                   f"(from ${instance.old_price:,.2f} to ${instance.new_price:,.2f})")
 
-        # Create alerts for apartment watchlist (no filtering)
+        # Create alerts for unique users only
         for watchlist_item in apartment_watchlist_items:
-            WatchlistAlert.objects.create(
-                user=watchlist_item.user,
-                apartment=instance.apartment,
-                alert_type='price_change',
-                message=message
-            )
+            if watchlist_item.user.id not in affected_users:
+                affected_users.add(watchlist_item.user.id)
+                WatchlistAlert.objects.create(
+                    user=watchlist_item.user,
+                    apartment=instance.apartment,
+                    alert_type='price_change',
+                    message=message
+                )
             
-        # Create alerts for building watchlist (with preference filtering)
+        # Create alerts for building watchlist users who haven't already been notified
         for watchlist_item in building_watchlist_items:
-            if should_notify_user(watchlist_item.user, instance.apartment.apartment_type):
+            if (watchlist_item.user.id not in affected_users and
+                should_notify_user(watchlist_item.user, instance.apartment.apartment_type)):
                 if not watchlist_item.max_price or instance.new_price <= watchlist_item.max_price:
+                    affected_users.add(watchlist_item.user.id)
                     WatchlistAlert.objects.create(
                         user=watchlist_item.user,
                         building=instance.apartment.building,
@@ -129,30 +136,39 @@ def create_status_change_alerts(sender, instance, **kwargs):
     try:
         old_instance = Apartment.objects.get(pk=instance.pk)
         if old_instance.status != instance.status:
-            # Handle apartment watchlist alerts (no preference filtering)
+            # Track users who have been notified to prevent duplicates
+            affected_users = set()
+            
+            # Handle apartment watchlist alerts
             apartment_watchlist_items = ApartmentWatchlist.objects.filter(
                 apartment=instance,
+                notify_availability_change=True
             ).select_related('user')
             
-            # Handle building watchlist alerts (with preference filtering)
+            # Handle building watchlist alerts
             building_watchlist_items = BuildingWatchlist.objects.filter(
                 building=instance.building,
+                notify_new_units=True
             ).select_related('user')
             
             message = f"Apartment {instance.unit_number} in {instance.building.name} is now {instance.status}."
             
-            # Create alerts for apartment watchlist
+            # Create alerts for apartment watchlist users
             for watchlist_item in apartment_watchlist_items:
-                WatchlistAlert.objects.create(
-                    user=watchlist_item.user,
-                    apartment=instance,
-                    alert_type='status_change',
-                    message=message
-                )
+                if watchlist_item.user.id not in affected_users:
+                    affected_users.add(watchlist_item.user.id)
+                    WatchlistAlert.objects.create(
+                        user=watchlist_item.user,
+                        apartment=instance,
+                        alert_type='status_change',
+                        message=message
+                    )
 
-            # Create alerts for building watchlist with preference filtering
+            # Create alerts for building watchlist users who haven't been notified
             for watchlist_item in building_watchlist_items:
-                if should_notify_user(watchlist_item.user, instance.apartment_type):
+                if (watchlist_item.user.id not in affected_users and 
+                    should_notify_user(watchlist_item.user, instance.apartment_type)):
+                    affected_users.add(watchlist_item.user.id)
                     WatchlistAlert.objects.create(
                         user=watchlist_item.user,
                         apartment=instance,
