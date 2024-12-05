@@ -112,8 +112,8 @@ DATABASES = {
         'NAME': os.getenv('PGDATABASE', 'postgres'),
         'USER': os.getenv('PGUSER', 'postgres'),
         'PASSWORD': os.getenv('PGPASSWORD', 'postgres'),
-        'HOST': os.getenv('PGHOST', 'host.docker.internal'),
-        'PORT': os.getenv('PGPORT', '32769'),
+        'HOST': os.getenv('PGHOST', 'postgres'),
+        'PORT': os.getenv('PGPORT', '5432'),
     }
 }
 
@@ -251,8 +251,11 @@ from datetime import timedelta
 SIMPLE_JWT = {
     'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
     'REFRESH_TOKEN_LIFETIME': timedelta(days=1),
-    'ROTATE_REFRESH_TOKENS': False,
+    'ROTATE_REFRESH_TOKENS': True,  # Issue a new refresh token when refreshing
     'BLACKLIST_AFTER_ROTATION': True,
+    'ALGORITHM': 'HS256',
+    'SIGNING_KEY': SECRET_KEY,
+    'AUTH_HEADER_TYPES': ('Bearer',),
 }
 
 AUTH_USER_MODEL = 'auth.User'

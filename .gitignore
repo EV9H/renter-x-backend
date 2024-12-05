@@ -6,5 +6,5 @@ __pycache__/
 htmlcov/
 dist/
 poetry.lock" > .gitignore
-
+.env
 repopackpy-output.txt
