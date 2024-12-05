@@ -11,7 +11,9 @@ building_info:
   amenities:
     fitness_center: true
     doorman: true
-
+  region_info:
+    borough: MAN
+    neighborhood: FID
 selectors:
   unit_list: ".availability-table tr"
   unit_data:

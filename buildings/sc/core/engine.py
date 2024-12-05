@@ -13,7 +13,7 @@ from django.utils import timezone
 from django.db import transaction
 from ...models import (
     Building, Apartment, ApartmentPrice, ScrapingSource, 
-    ScrapingRun, PriceChange
+    ScrapingRun, PriceChange, Region
 )
 from asgiref.sync import sync_to_async
 
@@ -64,7 +64,7 @@ class ScraperEngine:
             scraping_run = await sync_to_async(self._db_create_scraping_run)(source)
             
             logger.info("# Get building")
-            building, _ = await sync_to_async(self._db_get_or_create_building)()
+            building, _ = await self._db_get_or_create_building()
             
             logger.info("# Fetch and parse content")
             html_content = await self._fetch_page_with_playwright(self.config['url'])
@@ -332,12 +332,52 @@ class ScraperEngine:
             status='in_progress'
         )
 
-    def _db_get_or_create_building(self):
-        """Sync version of get or create building"""
-        return Building.objects.get_or_create(
-            name=self.config['building_info']['name'],
-            defaults=self.config['building_info']
+    def _db_get_or_create_region_sync(self, region_info):
+        """Synchronous method to get or create region"""
+        if not region_info:
+            return None
+        
+        region, _ = Region.objects.get_or_create(
+            borough=region_info['borough'],
+            neighborhood=region_info['neighborhood'],
+            defaults={'name': f"{region_info['borough']}-{region_info['neighborhood']}"}
         )
+        return region
+
+    def _db_get_or_create_building_sync(self, building_info, region=None):
+        """Synchronous method to get or create building"""
+        building_data = building_info.copy()
+        if 'region_info' in building_data:
+            del building_data['region_info']
+        
+        building, created = Building.objects.get_or_create(
+            name=building_data['name'],
+            defaults={**building_data, 'region': region}
+        )
+
+        if not created and region:
+            building.region = region
+            building.save()
+
+        return building, created
+
+    async def _db_get_or_create_building(self):
+        """Async wrapper for building creation"""
+        try:
+            # Get region information
+            region_info = self.config['building_info'].get('region_info')
+            print(region_info)
+            # Create region if needed
+            region = await sync_to_async(self._db_get_or_create_region_sync)(region_info)
+            # Create building
+            return await sync_to_async(self._db_get_or_create_building_sync)(
+                self.config['building_info'], 
+                region
+            )
+
+        except Exception as e:
+            logger.error(f"Error creating building with region: {str(e)}")
+            raise
 
     def _db_get_stored_units(self, building):
         """Sync version of get stored units"""

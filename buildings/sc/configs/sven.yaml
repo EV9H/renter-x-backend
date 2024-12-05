@@ -9,6 +9,9 @@ building_info:
   city: Long Island City
   state: NY
   website: https://www.svenlic.com/
+  region_info:
+    borough: QNS
+    neighborhood: LIC
   amenities:
     fitness_center: true
     pool: true

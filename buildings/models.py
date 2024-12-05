@@ -3,6 +3,60 @@ from django.contrib.postgres.fields import ArrayField
 from django.contrib.auth.models import User, AbstractUser, BaseUserManager, UserManager
 from django.utils.translation import gettext_lazy as _
 
+class Region(models.Model):
+    BOROUGHS = [
+        ('MAN', 'Manhattan'),
+        ('BRK', 'Brooklyn'),
+        ('QNS', 'Queens'),
+        ('BRX', 'Bronx'),
+        ('NJ', 'New Jersey')
+    ]
+
+    NEIGHBORHOODS = [
+        # Manhattan
+        ('LES', 'Lower East Side'),
+        ('FID', 'Financial District'),
+        ('HEL', "Hell's Kitchen"),
+        ('CHE', 'Chelsea'),
+        ('UES', 'Upper East Side'),
+        ('UWS', 'Upper West Side'),
+        ('HAR', 'Harlem'),
+        ('GRV', 'Greenwich Village'),
+        ('SOH', 'SoHo'),
+        ('TRI', 'Tribeca'),
+        # Queens
+        ('LIC', 'Long Island City'),
+        ('AST', 'Astoria'),
+        ('FLU', 'Flushing'),
+        # Brooklyn
+        ('WBG', 'Williamsburg'),
+        ('DUM', 'DUMBO'),
+        ('DTB', 'Downtown Brooklyn'),
+        ('BRH', 'Brooklyn Heights'),
+        # New Jersey
+        ('JCC', 'Jersey City'),
+        ('HOB', 'Hoboken'),
+        ('UNC', 'Union City'),
+    ]
+
+    name = models.CharField(max_length=100)
+    borough = models.CharField(max_length=3, choices=BOROUGHS)
+    neighborhood = models.CharField(max_length=3, choices=NEIGHBORHOODS)
+    description = models.TextField(blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        unique_together = ['borough', 'neighborhood']
+        indexes = [
+            models.Index(fields=['borough']),
+            models.Index(fields=['neighborhood']),
+        ]
+
+    def __str__(self):
+        return f"{self.get_borough_display()} - {self.get_neighborhood_display()}"
+
+        
 class Building(models.Model):
     name = models.CharField(max_length=200)
     address = models.CharField(max_length=500)
@@ -15,9 +69,15 @@ class Building(models.Model):
     phone = models.CharField(max_length=20, null=True, blank=True)
     year_built = models.IntegerField(null=True, blank=True)
     
+    region = models.ForeignKey(
+        Region,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='buildings'
+    )
     # Amenities as a JSON field for flexibility
     amenities = models.JSONField(default=dict)
-    
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
@@ -28,6 +88,7 @@ class Building(models.Model):
         indexes = [
             models.Index(fields=['postal_code']),
             models.Index(fields=['city', 'state']),
+            models.Index(fields=['region']),
         ]
 
 

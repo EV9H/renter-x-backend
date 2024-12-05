@@ -1,10 +1,27 @@
 from rest_framework import serializers
-from .models import Building, Apartment, ApartmentPrice, ScrapingSource, ScrapingRun, PriceChange, ApartmentWatchlist, BuildingWatchlist, WatchlistAlert
+from .models import Region, Building, Apartment, ApartmentPrice, ScrapingSource, ScrapingRun, PriceChange, ApartmentWatchlist, BuildingWatchlist, WatchlistAlert
+
+class RegionSerializer(serializers.ModelSerializer):
+    borough_display = serializers.CharField(source='get_borough_display', read_only=True)
+    neighborhood_display = serializers.CharField(source='get_neighborhood_display', read_only=True)
+    
+    class Meta:
+        model = Region
+        fields = ['id', 'name', 'borough', 'borough_display', 
+                 'neighborhood', 'neighborhood_display', 'description']
 
 class BuildingSerializer(serializers.ModelSerializer):
+    region_details = RegionSerializer(source='region', read_only=True)
+    
     class Meta:
         model = Building
         fields = '__all__'
+
+    def to_representation(self, instance):
+        representation = super().to_representation(instance)
+        if instance.region:
+            representation['region_name'] = f"{instance.region.get_borough_display()} - {instance.region.get_neighborhood_display()}"
+        return representation
 
 # class ApartmentSerializer(serializers.ModelSerializer):
 #     building_name = serializers.CharField(source='building.name', read_only=True)

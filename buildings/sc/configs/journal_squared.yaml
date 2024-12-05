@@ -12,7 +12,9 @@ building_info:
   amenities:
     fitness_center: true
     doorman: true
-
+  region_info:
+    borough: NJ
+    neighborhood: JCC
 selectors:
   unit_list: "article.floorplans-box"
   unit_data:

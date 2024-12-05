@@ -13,7 +13,9 @@ building_info:
     pool: true
     lounge: true
     doorman: true
-
+  region_info:
+    borough: QNS
+    neighborhood: LIC
 selectors:
   unit_list: ".availibility-box"
   unit_data:
