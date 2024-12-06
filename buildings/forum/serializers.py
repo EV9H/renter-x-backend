@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Category, Post, Comment, Tag, BuildingReference, PostDraft
+from .models import Category, Post, Comment, Tag, BuildingReference, PostDraft, Building
 from buildings.serializers import BuildingSerializer
 from django.contrib.auth import get_user_model
 
@@ -12,13 +12,18 @@ class UserSerializer(serializers.ModelSerializer):
         read_only_fields = ['email']
 
 class CategorySerializer(serializers.ModelSerializer):
-    post_count = serializers.IntegerField(read_only=True, source='annotated_post_count')
-    
+    published_posts_count = serializers.IntegerField(read_only=True)
+    active_posts_count = serializers.IntegerField(read_only=True)
+    latest_post_date = serializers.DateTimeField(read_only=True)
+
     class Meta:
         model = Category
-        fields = ['id', 'name', 'slug', 'description', 'parent', 'post_count', 
-                 'created_at', 'updated_at']
-        read_only_fields = ['slug', 'post_count']
+        fields = [
+            'id', 'name', 'slug', 'description',
+            'published_posts_count', 'active_posts_count',
+            'latest_post_date'
+        ]
+        read_only_fields = ['slug']
 
 class TagSerializer(serializers.ModelSerializer):
     class Meta:
@@ -53,15 +58,18 @@ class CommentSerializer(serializers.ModelSerializer):
 class PostListSerializer(serializers.ModelSerializer):
     """Serializer for listing posts with minimal information"""
     author = UserSerializer(read_only=True)
-    category = CategorySerializer(read_only=True)
+    category = serializers.PrimaryKeyRelatedField(
+        queryset=Category.objects.all(),
+        required=True
+    )
     tags = TagSerializer(many=True, read_only=True)
     comment_count = serializers.IntegerField(read_only=True)
     excerpt = serializers.SerializerMethodField()
-
+    category_details = CategorySerializer(source='category', read_only=True) 
     class Meta:
         model = Post
         fields = ['id', 'title', 'slug', 'author', 'category', 'tags', 
-                 'status', 'view_count', 'like_count', 'is_pinned',
+                 'status', 'view_count', 'like_count', 'is_pinned','category_details',
                  'created_at', 'last_activity_at', 'comment_count', 'excerpt']
         read_only_fields = ['slug', 'view_count', 'like_count']
 
@@ -72,35 +80,57 @@ class PostListSerializer(serializers.ModelSerializer):
 class PostDetailSerializer(serializers.ModelSerializer):
     """Serializer for detailed post view"""
     author = UserSerializer(read_only=True)
-    category = CategorySerializer(read_only=True)
-    tags = TagSerializer(many=True)
+    category = serializers.PrimaryKeyRelatedField(
+        queryset=Category.objects.all(),
+        required=True
+    )
+    tags = TagSerializer(many=True, read_only=True)
     comments = CommentSerializer(many=True, read_only=True)
     building_references = BuildingReferenceSerializer(many=True)
-    
+    category_details = CategorySerializer(source='category', read_only=True)  
+    comment_count = serializers.IntegerField(read_only=True)
+
     class Meta:
         model = Post
-        fields = ['id', 'title', 'slug', 'content', 'author', 'category', 
-                 'tags', 'status', 'view_count', 'like_count', 'is_pinned',
-                 'created_at', 'updated_at', 'last_activity_at', 
-                 'comments', 'building_references']
+        fields = [
+            'id', 'title', 'slug', 'content', 'author',
+            'category', 'category_details', 'status', 'tags',
+            'view_count', 'like_count', 'is_pinned','building_references','comments',
+            'created_at', 'last_activity_at', 'comment_count'
+        ]
         read_only_fields = ['slug', 'view_count', 'like_count']
 
+
     def create(self, validated_data):
+        request = self.context.get('request')
+        if not request or not request.user.is_authenticated:
+            raise serializers.ValidationError("Authentication required to create posts")
+
+        # Extract tags and building_references from validated_data
         tags_data = validated_data.pop('tags', [])
         building_references_data = validated_data.pop('building_references', [])
-        
+
+        # Set the author to the current user
+        validated_data['author'] = request.user
+
+        # Create the post
         post = Post.objects.create(**validated_data)
-        
-        # Handle tags
-        for tag_data in tags_data:
-            tag, _ = Tag.objects.get_or_create(**tag_data)
-            post.tags.add(tag)
-        
-        # Handle building references
+
+        # Add tags
+        for tag_name in tags_data:
+            tag, _ = Tag.objects.get_or_create(name=tag_name)
+            PostTag.objects.create(post=post, tag=tag)
+
+        # Add building references
         for ref_data in building_references_data:
-            BuildingReference.objects.create(post=post, **ref_data)
-        
+            # ref_data should include 'building_id', 'reference_type', 'context'
+            # Make sure 'building_id' exists. If it's just 'building_id', you need to fetch the building object
+            building_id = ref_data.pop('building_id')
+            building = Building.objects.get(id=building_id)
+            BuildingReference.objects.create(post=post, building=building, **ref_data)
+
         return post
+
 
     def update(self, instance, validated_data):
         tags_data = validated_data.pop('tags', [])

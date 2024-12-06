@@ -2,6 +2,7 @@ from django.db import models
 from django.contrib.auth import get_user_model
 from django.utils.text import slugify
 from ..models import Building
+from django.utils import timezone
 
 User = get_user_model()
 
@@ -9,13 +10,6 @@ class Category(models.Model):
     name = models.CharField(max_length=100)
     slug = models.SlugField(unique=True)
     description = models.TextField(blank=True)
-    parent = models.ForeignKey(
-        'self',
-        null=True,
-        blank=True,
-        on_delete=models.CASCADE,
-        related_name='children'
-    )
     post_count = models.PositiveIntegerField(default=0)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
@@ -31,6 +25,11 @@ class Category(models.Model):
 
     def __str__(self):
         return self.name
+
+    def update_post_count(self):
+        """Update the post count based on published posts"""
+        self.post_count = self.posts.filter(status='published').count()
+        self.save()
 
 class Tag(models.Model):
     name = models.CharField(max_length=50, unique=True)
@@ -66,7 +65,11 @@ class Post(models.Model):
         on_delete=models.CASCADE,
         related_name='posts'
     )
-    tags = models.ManyToManyField('Tag', through='PostTag')
+    tags = models.ManyToManyField(
+        'Tag', 
+        through='PostTag',
+        related_name='tagged_posts'  
+    )
     status = models.CharField(
         max_length=20,
         choices=STATUS_CHOICES,
@@ -90,6 +93,8 @@ class Post(models.Model):
     def save(self, *args, **kwargs):
         if not self.slug:
             self.slug = slugify(self.title)
+        if not self.last_activity_at:
+            self.last_activity_at = timezone.now()
         super().save(*args, **kwargs)
 
     def __str__(self):

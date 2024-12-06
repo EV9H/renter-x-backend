@@ -11,7 +11,6 @@ router.register(r'tags', views.TagViewSet)
 # Nested router for comments
 posts_router = NestedDefaultRouter(router, r'posts', lookup='post')
 posts_router.register(r'comments', views.CommentViewSet, basename='post-comments')
-
 urlpatterns = [
     path('', include(router.urls)),
     path('', include(posts_router.urls)),

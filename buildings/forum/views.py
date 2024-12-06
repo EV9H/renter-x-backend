@@ -6,7 +6,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Count, Q
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
-from .models import Category, Post, Comment, Tag, PostDraft
+from .models import Category, Post, Comment, Tag, PostDraft, PostTag
 from .serializers import (
     CategorySerializer,
     PostListSerializer,
@@ -18,6 +18,93 @@ from .serializers import (
 
 from django.db.models import Count, Max
 from .permissions import IsAuthorOrReadOnly, IsModerator
+from django_filters import rest_framework as django_filters
+
+# Add a custom filter for PostViewSet
+class PostFilter(django_filters.FilterSet):
+    category_slug = django_filters.CharFilter(field_name='category__slug')
+    tags = django_filters.CharFilter(method='filter_by_tags')
+    created_after = django_filters.DateTimeFilter(field_name='created_at', lookup_expr='gte')
+    created_before = django_filters.DateTimeFilter(field_name='created_at', lookup_expr='lte')
+
+    class Meta:
+        model = Post
+        fields = ['category_slug', 'status', 'tags']
+
+    def filter_by_category_slug(self, queryset, name, value):
+        return queryset.filter(category__slug=value)
+
+    def filter_by_tags(self, queryset, name, value):
+        tag_names = value.split(',')
+        return queryset.filter(tags__name__in=tag_names).distinct()
+
+class PostViewSet(viewsets.ModelViewSet):
+    serializer_class = PostDetailSerializer
+    permission_classes = [IsAuthenticatedOrReadOnly, IsAuthorOrReadOnly]
+    filter_backends = [
+        django_filters.DjangoFilterBackend,
+        filters.SearchFilter,
+        filters.OrderingFilter
+    ]
+    filterset_class = PostFilter
+    search_fields = ['title', 'content', 'author__username']
+    ordering_fields = ['created_at', 'last_activity_at', 'view_count', 'like_count']
+    # lookup_field = 'slug'
+
+    def get_queryset(self):
+        queryset = Post.objects.annotate(
+            comment_count=Count('comments'),
+            latest_comment_date=Max('comments__created_at')
+        )
+        # Filter based on status and user
+        if self.request.user.is_authenticated:
+            queryset = queryset.filter(
+                Q(status='published') | Q(author=self.request.user)
+            )
+        else:
+            queryset = queryset.filter(status='published')
+
+        # Apply sorting
+        sort_by = self.request.query_params.get('sort', 'newest')
+        if sort_by == 'newest':
+            queryset = queryset.order_by('-created_at')
+        elif sort_by == 'popular':
+            queryset = queryset.order_by('-like_count', '-created_at')
+        elif sort_by == 'discussed':
+            queryset = queryset.order_by('-comment_count', '-created_at')
+
+        return queryset.select_related(
+            'author', 
+            'category'
+        ).prefetch_related('tags')
+
+    def get_serializer_context(self):
+        context = super().get_serializer_context()
+        context['request'] = self.request
+        return context
+
+    def perform_create(self, serializer):
+        serializer.save(author=self.request.user)
+
+    @action(detail=True, methods=['post'])
+    def toggle_like(self, request, slug=None):
+        post = self.get_object()
+        try:
+            like = post.likes.get(user=request.user)
+            like.delete()
+            liked = False
+        except ObjectDoesNotExist:
+            post.likes.create(user=request.user)
+            liked = True
+
+        post.like_count = post.likes.count()
+        post.save()
+
+        return Response({
+            'status': 'success',
+            'liked': liked,
+            'like_count': post.like_count
+        })
 
 class CategoryViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.all()
@@ -29,82 +116,57 @@ class CategoryViewSet(viewsets.ModelViewSet):
 
     def get_queryset(self):
         return self.queryset.annotate(
-            annotated_post_count=Count('posts')
+            active_posts_count=Count(
+                'posts',
+                filter=Q(
+                    posts__status='published',
+                    posts__last_activity_at__gte=timezone.now() - timezone.timedelta(days=30)
+                )
+            ),
+            latest_post_date=Max('posts__created_at')
         )
 
     @action(detail=True)
     def stats(self, request, slug=None):
         category = self.get_object()
-        posts = Post.objects.filter(category=category)
+        posts = Post.objects.filter(
+            category=category,
+            status='published'
+        )
+        
+        # Get tags using the correct relationship
+        tags_data = PostTag.objects.filter(
+            post__category=category,
+            post__status='published'
+        ).values('tag__id', 'tag__name', 'tag__slug'
+        ).annotate(
+            usage_count=Count('tag')
+        ).order_by('-usage_count')[:10]
+
+        popular_tags = [
+            {
+                'id': tag['tag__id'],
+                'name': tag['tag__name'],
+                'slug': tag['tag__slug'],
+                'usage_count': tag['usage_count']
+            }
+            for tag in tags_data
+        ]
         
         return Response({
             'total_posts': posts.count(),
-            'total_comments': Comment.objects.filter(post__category=category).count(),
+            'total_comments': Comment.objects.filter(
+                post__in=posts
+            ).count(),
             'active_posts': posts.filter(
                 last_activity_at__gte=timezone.now() - timezone.timedelta(days=30)
             ).count(),
             'latest_posts': PostListSerializer(
                 posts.order_by('-created_at')[:5], 
                 many=True
-            ).data
+            ).data,
+            'popular_tags': popular_tags
         })
-
-class PostViewSet(viewsets.ModelViewSet):
-    serializer_class = PostListSerializer
-    permission_classes = [IsAuthenticatedOrReadOnly, IsAuthorOrReadOnly]
-    filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['category', 'status', 'tags']
-    search_fields = ['title', 'content']
-    ordering_fields = ['created_at', 'last_activity_at', 'view_count', 'like_count']
-    lookup_field = 'slug'
-    queryset = Post.objects.all()  # Add this line
-
-    def get_queryset(self):
-        queryset = Post.objects.annotate(
-            comment_count=Count('comments'),
-            latest_comment_date=Max('comments__created_at')
-        )
-        
-        # Filter based on status
-        if self.action == 'list':
-            queryset = queryset.filter(Q(status='published') | Q(author=self.request.user))
-        
-        return queryset.select_related('author', 'category').prefetch_related('tags')
-    def get_serializer_class(self):
-        if self.action == 'retrieve':
-            return PostDetailSerializer
-        return PostListSerializer
-
-    def perform_create(self, serializer):
-        serializer.save(author=self.request.user)
-
-    def perform_update(self, serializer):
-        instance = serializer.save()
-        # Update last_activity_at when post is updated
-        instance.last_activity_at = timezone.now()
-        instance.save()
-
-    @action(detail=True, methods=['post'])
-    def like(self, request, slug=None):
-        post = self.get_object()
-        post.like_count += 1
-        post.save()
-        return Response({'status': 'success', 'like_count': post.like_count})
-
-    @action(detail=True, methods=['post'])
-    def unlike(self, request, slug=None):
-        post = self.get_object()
-        if post.like_count > 0:
-            post.like_count -= 1
-            post.save()
-        return Response({'status': 'success', 'like_count': post.like_count})
-
-    @action(detail=True, methods=['post'])
-    def view(self, request, slug=None):
-        post = self.get_object()
-        post.view_count += 1
-        post.save()
-        return Response({'status': 'success', 'view_count': post.view_count})
 
 class CommentViewSet(viewsets.ModelViewSet):
     serializer_class = CommentSerializer
