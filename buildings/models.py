@@ -268,7 +268,7 @@ class NewUserProfile(models.Model):
 
 class ApartmentWatchlist(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='apartment_watchlist')
-    apartment = models.ForeignKey('Apartment', on_delete=models.CASCADE)
+    apartment = models.ForeignKey('Apartment', on_delete=models.CASCADE, related_name='apartment_watchlists')
     notify_price_change = models.BooleanField(default=True)
     notify_availability_change = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
@@ -283,7 +283,7 @@ class ApartmentWatchlist(models.Model):
 
 class BuildingWatchlist(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE, related_name='building_watchlist')
-    building = models.ForeignKey('Building', on_delete=models.CASCADE)
+    building = models.ForeignKey('Building', on_delete=models.CASCADE, related_name='building_watchlists')
     notify_new_units = models.BooleanField(default=True)
     unit_type_preference = models.CharField(max_length=50, null=True, blank=True)
     max_price = models.DecimalField(max_digits=10, decimal_places=2, null=True, blank=True)
@@ -321,3 +321,4 @@ class WatchlistAlert(models.Model):
             models.Index(fields=['alert_type']),
             models.Index(fields=['user', 'read']),
         ]
+

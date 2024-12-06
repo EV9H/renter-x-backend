@@ -25,6 +25,14 @@ pyyaml = "^6.0.2"
 asgiref = "^3.8.1"
 colorama = "^0.4.6"
 djangorestframework-simplejwt = "^5.3.1"
+elasticsearch = "^8.16.0"
+elasticsearch-dsl = "^8.16.0"
+django-elasticsearch-dsl = "^8.0"
+django-elasticsearch-dsl-drf = "^0.22.5"
+celery = "^5.4.0"
+redis = "^5.2.0"
+drf-nested-routers = "^0.94.1"
+
 
 [tool.poetry.group.dev.dependencies]
 black = "^24.1.1"

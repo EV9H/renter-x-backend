@@ -90,6 +90,7 @@ def create_price_change_alerts(sender, instance, created, **kwargs):
                 WatchlistAlert.objects.create(
                     user=watchlist_item.user,
                     apartment=instance.apartment,
+                    building=instance.apartment.building,
                     alert_type='price_change',
                     message=message
                 )
@@ -160,6 +161,7 @@ def create_status_change_alerts(sender, instance, **kwargs):
                     WatchlistAlert.objects.create(
                         user=watchlist_item.user,
                         apartment=instance,
+                        building=instance.building,
                         alert_type='status_change',
                         message=message
                     )
@@ -172,6 +174,7 @@ def create_status_change_alerts(sender, instance, **kwargs):
                     WatchlistAlert.objects.create(
                         user=watchlist_item.user,
                         apartment=instance,
+                        building=instance.building,
                         alert_type='status_change',
                         message=message
                     )

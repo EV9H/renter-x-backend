@@ -1,0 +1,1 @@
+default_app_config = 'buildings.forum.apps.ForumConfig'

@@ -223,6 +223,7 @@ User = get_user_model()
 @permission_classes([AllowAny])
 def signup(request):
     try:
+        print("SIGNING UP")
         data = request.data
         email = data.get('email')
         password = data.get('password')
@@ -463,7 +464,7 @@ class AdminApartmentViewSet(viewsets.ModelViewSet):
         # Check if the price is the same
         if latest_price_entry and latest_price_entry.price == float(price):
             logger.info("Price is unchanged; no update required.")
-            return Response({"detail": "Price is unchanged."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"detail": "Price is unchanged."}, status=status.HTTP_304_NOT_MODIFIED )
 
         # Create a new price entry
         try:
