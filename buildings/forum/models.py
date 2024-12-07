@@ -81,9 +81,9 @@ class Post(models.Model):
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
     last_activity_at = models.DateTimeField(auto_now_add=True)
-
+    likes = models.ManyToManyField(get_user_model(), related_name='liked_posts', blank=True)
     class Meta:
-        ordering = ['-last_activity_at']
+        ordering = ['-created_at']
         indexes = [
             models.Index(fields=['status', '-created_at']),
             models.Index(fields=['-last_activity_at']),
@@ -96,7 +96,18 @@ class Post(models.Model):
         if not self.last_activity_at:
             self.last_activity_at = timezone.now()
         super().save(*args, **kwargs)
-
+    def toggle_like(self, user):
+        """Toggle like status for a user"""
+        if self.likes.filter(id=user.id).exists():
+            self.likes.remove(user)
+            liked = False
+        else:
+            self.likes.add(user)
+            liked = True
+        
+        self.like_count = self.likes.count()
+        self.save()
+        return liked
     def __str__(self):
         return self.title
 

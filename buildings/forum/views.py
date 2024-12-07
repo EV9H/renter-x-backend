@@ -6,7 +6,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Count, Q
 from django.utils import timezone
 from django.shortcuts import get_object_or_404
-from .models import Category, Post, Comment, Tag, PostDraft, PostTag
+from .models import Category, Post, Comment, Tag, PostDraft, PostTag, BuildingReference
 from .serializers import (
     CategorySerializer,
     PostListSerializer,
@@ -15,7 +15,7 @@ from .serializers import (
     TagSerializer,
     PostDraftSerializer
 )
-
+from django.db.models import F, ExpressionWrapper, IntegerField
 from django.db.models import Count, Max
 from .permissions import IsAuthorOrReadOnly, IsModerator
 from django_filters import rest_framework as django_filters
@@ -86,25 +86,84 @@ class PostViewSet(viewsets.ModelViewSet):
     def perform_create(self, serializer):
         serializer.save(author=self.request.user)
 
-    @action(detail=True, methods=['post'])
-    def toggle_like(self, request, slug=None):
+    @action(detail=True, methods=['POST'])
+    def toggle_like(self, request, pk=None):
+        """Toggle like status for a post"""
         post = self.get_object()
-        try:
-            like = post.likes.get(user=request.user)
-            like.delete()
-            liked = False
-        except ObjectDoesNotExist:
-            post.likes.create(user=request.user)
-            liked = True
-
-        post.like_count = post.likes.count()
-        post.save()
-
+        if not request.user.is_authenticated:
+            return Response({"detail": "Authentication required"}, status=401)
+        
+        liked = post.toggle_like(request.user)
+        
         return Response({
-            'status': 'success',
             'liked': liked,
             'like_count': post.like_count
         })
+
+    @action(detail=False)
+    def trending(self, request):
+        """Get trending posts based on engagement"""
+        posts = Post.objects.filter(status='published')\
+            .annotate(
+                comment_count=Count('comments'),  
+                engagement_score=ExpressionWrapper(
+                    F('like_count') * 2 + F('comment_count') * 3,
+                    output_field=IntegerField()
+                )
+            ).order_by('-engagement_score', '-created_at')[:10]
+        
+        serializer = PostListSerializer(
+            posts, 
+            many=True,
+            context={'request': request}
+        )
+        return Response(serializer.data)
+    
+    @action(detail=True, methods=['POST'])
+    def comments(self, request, pk=None):
+        post = self.get_object()
+        serializer = CommentSerializer(
+            data=request.data,
+            context={
+                'request': request,
+                'post': post
+            }
+        )
+        if serializer.is_valid():
+            serializer.save(post=post) 
+            return Response(serializer.data, status=201)
+        return Response(serializer.errors, status=400)
+    
+    def update(self, request, *args, **kwargs):
+        partial = kwargs.pop('partial', False)
+        instance = self.get_object()
+        serializer = self.get_serializer(instance, data=request.data, partial=partial)
+        
+        if serializer.is_valid():
+            # Handle tags
+            if 'tags' in request.data:
+                instance.tags.clear()
+                for tag_name in request.data['tags']:
+                    tag, _ = Tag.objects.get_or_create(name=tag_name)
+                    instance.tags.add(tag)
+
+            # Handle building references
+            if 'building_references' in request.data:
+                # Delete existing building references
+                BuildingReference.objects.filter(post=instance).delete()
+                # Create new building references
+                for ref in request.data['building_references']:
+                    BuildingReference.objects.create(
+                        post=instance,
+                        building_id=ref['building_id'],
+                        reference_type=ref.get('reference_type', 'mention')
+                    )
+
+            self.perform_update(serializer)
+
+            return Response(serializer.data)
+        return Response(serializer.errors, status=400)
+
 
 class CategoryViewSet(viewsets.ModelViewSet):
     queryset = Category.objects.all()

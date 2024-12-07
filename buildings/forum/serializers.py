@@ -2,6 +2,7 @@ from rest_framework import serializers
 from .models import Category, Post, Comment, Tag, BuildingReference, PostDraft, Building
 from buildings.serializers import BuildingSerializer
 from django.contrib.auth import get_user_model
+from django.utils.html import strip_tags
 
 User = get_user_model()
 
@@ -46,14 +47,29 @@ class CommentSerializer(serializers.ModelSerializer):
     class Meta:
         model = Comment
         fields = ['id', 'content', 'author', 'parent', 'like_count', 
-                 'created_at', 'updated_at', 'replies']
-        read_only_fields = ['author', 'like_count']
+                 'created_at', 'updated_at', 'replies','post']
+        read_only_fields = ['author', 'like_count','post']
 
     def get_replies(self, obj):
         if not hasattr(obj, 'replies'):
             return []
         serializer = CommentSerializer(obj.replies.all(), many=True)
         return serializer.data
+    def create(self, validated_data):
+        request = self.context.get('request')
+        post = self.context.get('post')
+        
+        if not request or not request.user.is_authenticated:
+            raise serializers.ValidationError("Must be authenticated to comment")
+        
+        if not post:
+            raise serializers.ValidationError("Post is required")
+
+        validated_data['author'] = request.user
+        validated_data['post'] = post
+        
+        return super().create(validated_data)
+
 
 class PostListSerializer(serializers.ModelSerializer):
     """Serializer for listing posts with minimal information"""
@@ -74,8 +90,9 @@ class PostListSerializer(serializers.ModelSerializer):
         read_only_fields = ['slug', 'view_count', 'like_count']
 
     def get_excerpt(self, obj):
-        """Return a short excerpt of the post content"""
-        return obj.content[:200] + '...' if len(obj.content) > 200 else obj.content
+        """Return a plain text excerpt of the post content"""
+        text = strip_tags(obj.content)  # Remove HTML tags
+        return text[:200] + '...' if len(text) > 200 else text
 
 class PostDetailSerializer(serializers.ModelSerializer):
     """Serializer for detailed post view"""
@@ -89,18 +106,27 @@ class PostDetailSerializer(serializers.ModelSerializer):
     building_references = BuildingReferenceSerializer(many=True)
     category_details = CategorySerializer(source='category', read_only=True)  
     comment_count = serializers.IntegerField(read_only=True)
-
+    is_liked = serializers.SerializerMethodField()
     class Meta:
         model = Post
         fields = [
             'id', 'title', 'slug', 'content', 'author',
             'category', 'category_details', 'status', 'tags',
             'view_count', 'like_count', 'is_pinned','building_references','comments',
-            'created_at', 'last_activity_at', 'comment_count'
+            'created_at', 'last_activity_at', 'comment_count', 'is_liked'
         ]
         read_only_fields = ['slug', 'view_count', 'like_count']
+    def get_is_liked(self, obj):
+        request = self.context.get('request')
+        user = request.user if request and request.user.is_authenticated else None
+        return user in obj.likes.all() if user else False
 
 
+
+    def get_excerpt(self, obj):
+        """Return a plain text excerpt of the post content"""
+        text = strip_tags(obj.content)  # Remove HTML tags
+        return text[:200] + '...' if len(text) > 200 else text
     def create(self, validated_data):
         request = self.context.get('request')
         if not request or not request.user.is_authenticated:
@@ -131,6 +157,11 @@ class PostDetailSerializer(serializers.ModelSerializer):
 
         return post
 
+    def update(self, instance, validated_data):
+        instance.title = validated_data.get('title', instance.title)
+        instance.content = validated_data.get('content', instance.content)
+        instance.save()
+        return instance
 
     def update(self, instance, validated_data):
         tags_data = validated_data.pop('tags', [])
