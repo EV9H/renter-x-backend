@@ -32,7 +32,7 @@ class BuildingViewSet(viewsets.ModelViewSet):
     queryset = Building.objects.all().order_by('id')
     serializer_class = BuildingSerializer
     filter_backends = [DjangoFilterBackend, filters.SearchFilter, filters.OrderingFilter]
-    filterset_fields = ['postal_code', 'city', 'state','region']
+    filterset_fields = ['name', 'postal_code', 'city', 'state','region']
     search_fields = ['name', 'address']
     ordering_fields = ['name', 'created_at']
 
@@ -519,3 +519,43 @@ class AdminApartmentViewSet(viewsets.ModelViewSet):
             self.perform_create(serializer)
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+    
+    @action(detail=False, methods=['post'])
+    def bulk_update(self, request):
+        """
+        Handle bulk updates of apartments.
+        Mark apartments not in the update as 'unavailable' and add new apartments as 'available'.
+        """
+        scraped_data = request.data  # List of dictionaries with apartment data
+        building_id = request.query_params.get("building_id")  # Optional filter by building
+
+        # Filter by building if provided
+        if building_id:
+            current_apartments = Apartment.objects.filter(building_id=building_id)
+        else:
+            current_apartments = Apartment.objects.all()
+
+        current_apartment_ids = set(current_apartments.values_list("id", flat=True))
+        scraped_apartment_ids = {item.get("id") for item in scraped_data if "id" in item}
+
+        # Mark apartments as UNAVAILABLE if not part of the scraped data
+        apartments_to_mark_unavailable = current_apartments.exclude(id__in=scraped_apartment_ids)
+        apartments_to_mark_unavailable.update(status=Apartment.ApartmentStatus.UNAVAILABLE)
+
+        # Update existing apartments
+        for data in scraped_data:
+            if "id" in data and data["id"] in current_apartment_ids:
+                apartment = current_apartments.get(id=data["id"])
+                for field, value in data.items():
+                    setattr(apartment, field, value)
+                apartment.save()
+
+        # Add new apartments
+        new_apartments_data = [item for item in scraped_data if "id" not in item or item["id"] not in current_apartment_ids]
+        serializer = self.get_serializer(data=new_apartments_data, many=True)
+        if serializer.is_valid():
+            serializer.save()
+        else:
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({"detail": "Bulk update completed successfully."}, status=status.HTTP_200_OK)

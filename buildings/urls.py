@@ -13,7 +13,7 @@ from .views import (
 from .forum import views as forum_views
 
 from . import views
-from rest_framework_simplejwt.views import TokenRefreshView
+from rest_framework_simplejwt.views import TokenRefreshView,TokenObtainPairView
 router = DefaultRouter()
 router.register(r'buildings', BuildingViewSet)
 router.register(r'apartments', ApartmentViewSet)
@@ -42,6 +42,7 @@ urlpatterns = [
     path('', include(router.urls)),
     path('auth/signup/', views.signup, name='signup'),
     path('auth/login/', views.login, name='login'),
+    path('auth/token/', TokenObtainPairView.as_view(), name='token_obtain_pair'),
     path('auth/token/refresh/', TokenRefreshView.as_view(), name='token_refresh'),
     path('', include(posts_router.urls)),
 
