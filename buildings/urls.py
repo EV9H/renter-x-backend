@@ -8,6 +8,7 @@ from .views import (
     WatchlistAlertViewSet,
     AdminBuildingViewSet, 
     AdminApartmentViewSet,
+    AdminRegionViewSet,
     # PriceChangeAdminViewSet
 )
 from .forum import views as forum_views
@@ -27,6 +28,8 @@ router.register(r'building-watchlist', BuildingWatchlistViewSet, basename='build
 router.register(r'watchlist-alerts', WatchlistAlertViewSet, basename='watchlist-alerts')
 router.register(r'admin/buildings', AdminBuildingViewSet, basename='admin-building')
 router.register(r'admin/apartments', AdminApartmentViewSet, basename='admin-apartment')
+router.register(r'admin/regions', AdminRegionViewSet, basename='admin-region')
+
 
 # Forum routes
 router.register(r'forum/categories', forum_views.CategoryViewSet, basename='forum-category')

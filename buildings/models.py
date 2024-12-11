@@ -24,6 +24,9 @@ class Region(models.Model):
         ('GRV', 'Greenwich Village'),
         ('SOH', 'SoHo'),
         ('TRI', 'Tribeca'),
+        ('MTW', 'Midtown West'),
+        ('MTE', 'Midtown East'),
+
         # Queens
         ('LIC', 'Long Island City'),
         ('AST', 'Astoria'),

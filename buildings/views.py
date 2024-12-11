@@ -3,7 +3,7 @@ from rest_framework.decorators import action, api_view, permission_classes
 from rest_framework.response import Response
 from django_filters.rest_framework import DjangoFilterBackend
 from django.db.models import Max
-from .models import Building, Apartment, ApartmentPrice, ScrapingSource, ScrapingRun, PriceChange, ApartmentWatchlist, BuildingWatchlist,WatchlistAlert
+from .models import Building, Apartment, ApartmentPrice, ScrapingSource, ScrapingRun, PriceChange, ApartmentWatchlist, BuildingWatchlist,WatchlistAlert, Region
 from django.utils import timezone
 from django.core.exceptions import ObjectDoesNotExist
 from django.db import transaction
@@ -12,7 +12,7 @@ from .serializers import (
     BuildingSerializer, ApartmentSerializer, ApartmentPriceSerializer,
     ScrapingSourceSerializer, ScrapingRunSerializer, PriceChangeSerializer,
     UserProfileSerializer, ApartmentWatchlistSerializer, BuildingWatchlistSerializer, 
-    WatchlistAlertSerializer
+    WatchlistAlertSerializer, RegionSerializer
 )
 
 from rest_framework.permissions import AllowAny, IsAuthenticated, IsAdminUser
@@ -434,7 +434,24 @@ class AdminBuildingViewSet(viewsets.ModelViewSet):
         building.amenities.update(request.data)
         building.save()
         return Response(building.amenities)
-
+    
+    def create(self, request, *args, **kwargs):
+        """Create building with proper error handling"""
+        try:
+            serializer = self.get_serializer(data=request.data)
+            serializer.is_valid(raise_exception=True)
+            self.perform_create(serializer)
+            headers = self.get_success_headers(serializer.data)
+            return Response(
+                serializer.data, 
+                status=status.HTTP_201_CREATED, 
+                headers=headers
+            )
+        except Exception as e:
+            return Response(
+                {"error": str(e)},
+                status=status.HTTP_400_BAD_REQUEST
+            )
 class AdminApartmentViewSet(viewsets.ModelViewSet):
     permission_classes = [IsAdminUser]
     queryset = Apartment.objects.all()
@@ -646,4 +663,52 @@ class AdminApartmentViewSet(viewsets.ModelViewSet):
             return Response(
                 {"error": str(e)}, 
                 status=status.HTTP_400_BAD_REQUEST
+            )
+
+class AdminRegionViewSet(viewsets.ModelViewSet):
+    permission_classes = [IsAdminUser]
+    queryset = Region.objects.all()
+    serializer_class = RegionSerializer
+
+    @action(detail=False, methods=['post'])
+    def get_or_create(self, request):
+        """Get or create a region based on borough and neighborhood"""
+        try:
+            borough = request.data.get('borough')
+            neighborhood = request.data.get('neighborhood')
+            
+            if not borough or not neighborhood:
+                return Response(
+                    {"error": "Borough and neighborhood are required"}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            # Try to get existing region
+            region = Region.objects.filter(
+                borough=borough,
+                neighborhood=neighborhood
+            ).first()
+
+            if region:
+                serializer = self.get_serializer(region)
+                return Response(serializer.data)
+
+            # Create new region
+            region_data = {
+                'name': f"{dict(Region.BOROUGHS)[borough]} - {dict(Region.NEIGHBORHOODS)[neighborhood]}",
+                'borough': borough,
+                'neighborhood': neighborhood,
+                'description': request.data.get('description', '')
+            }
+
+            serializer = self.get_serializer(data=region_data)
+            serializer.is_valid(raise_exception=True)
+            self.perform_create(serializer)
+
+            return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            return Response(
+                {"error": str(e)}, 
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
