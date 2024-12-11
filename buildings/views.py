@@ -6,6 +6,7 @@ from django.db.models import Max
 from .models import Building, Apartment, ApartmentPrice, ScrapingSource, ScrapingRun, PriceChange, ApartmentWatchlist, BuildingWatchlist,WatchlistAlert
 from django.utils import timezone
 from django.core.exceptions import ObjectDoesNotExist
+from django.db import transaction
 
 from .serializers import (
     BuildingSerializer, ApartmentSerializer, ApartmentPriceSerializer,
@@ -22,7 +23,7 @@ from django.core.exceptions import ValidationError
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework_simplejwt.tokens import RefreshToken
 from decimal import Decimal
-
+from django.shortcuts import get_object_or_404
 import logging
 
 logger = logging.getLogger(__name__)
@@ -520,42 +521,129 @@ class AdminApartmentViewSet(viewsets.ModelViewSet):
             return Response(serializer.data, status=status.HTTP_201_CREATED)
         return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
     
+
     @action(detail=False, methods=['post'])
     def bulk_update(self, request):
-        """
-        Handle bulk updates of apartments.
-        Mark apartments not in the update as 'unavailable' and add new apartments as 'available'.
-        """
-        scraped_data = request.data  # List of dictionaries with apartment data
-        building_id = request.query_params.get("building_id")  # Optional filter by building
+        """Handle bulk updates of apartments with proper price change tracking"""
+        try:
+            building_id = request.data.get('building_id')
+            updates = request.data.get('updates', [])
+            existing_unit_numbers = set(request.data.get('existing_unit_numbers', []))
+            scraping_run = None
 
-        # Filter by building if provided
-        if building_id:
-            current_apartments = Apartment.objects.filter(building_id=building_id)
-        else:
-            current_apartments = Apartment.objects.all()
+            if not building_id or not updates:
+                return Response(
+                    {"error": "Missing required data"}, 
+                    status=status.HTTP_400_BAD_REQUEST
+                )
 
-        current_apartment_ids = set(current_apartments.values_list("id", flat=True))
-        scraped_apartment_ids = {item.get("id") for item in scraped_data if "id" in item}
+            building = get_object_or_404(Building, id=building_id)
+            current_units = set()
 
-        # Mark apartments as UNAVAILABLE if not part of the scraped data
-        apartments_to_mark_unavailable = current_apartments.exclude(id__in=scraped_apartment_ids)
-        apartments_to_mark_unavailable.update(status=Apartment.ApartmentStatus.UNAVAILABLE)
+            # Create a scraping run record
+            scraping_run = ScrapingRun.objects.create(
+                source=ScrapingSource.objects.get_or_create(
+                    name=building.name,
+                    defaults={'base_url': building.website}
+                )[0],
+                start_time=timezone.now(),
+                status='in_progress'
+            )
 
-        # Update existing apartments
-        for data in scraped_data:
-            if "id" in data and data["id"] in current_apartment_ids:
-                apartment = current_apartments.get(id=data["id"])
-                for field, value in data.items():
-                    setattr(apartment, field, value)
-                apartment.save()
+            with transaction.atomic():
+                updated_count = 0
+                price_changes = 0
 
-        # Add new apartments
-        new_apartments_data = [item for item in scraped_data if "id" not in item or item["id"] not in current_apartment_ids]
-        serializer = self.get_serializer(data=new_apartments_data, many=True)
-        if serializer.is_valid():
-            serializer.save()
-        else:
-            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+                # Process each apartment update
+                for apt_data in updates:
+                    unit_number = apt_data.get('unit_number')
+                    if not unit_number:
+                        continue
 
-        return Response({"detail": "Bulk update completed successfully."}, status=status.HTTP_200_OK)
+                    current_units.add(unit_number)
+                    new_price = Decimal(str(apt_data.get('price', 0)))
+
+                    # Get or create apartment
+                    apartment, created = Apartment.objects.get_or_create(
+                        building=building,
+                        unit_number=unit_number,
+                        defaults={
+                            'floor': apt_data.get('floor', 1),
+                            'bedrooms': apt_data.get('bedrooms', 0),
+                            'bathrooms': apt_data.get('bathrooms', 1),
+                            'area_sqft': apt_data.get('area_sqft', 0),
+                            'apartment_type': apt_data.get('apartment_type', 'Studio'),
+                            'status': 'available'
+                        }
+                    )
+
+                    # Update existing apartment fields
+                    if not created:
+                        for key in ['floor', 'bedrooms', 'bathrooms', 'area_sqft', 
+                                'apartment_type', 'status']:
+                            if key in apt_data:
+                                setattr(apartment, key, apt_data[key])
+                        apartment.save()
+
+                    # Handle price update
+                    latest_price = apartment.price_history.order_by('-start_date').first()
+                    
+                    if new_price > 0 and (not latest_price or latest_price.price != new_price):
+                        # Create new price history entry
+                        ApartmentPrice.objects.create(
+                            apartment=apartment,
+                            price=new_price,
+                            start_date=timezone.now().date(),
+                            lease_term_months=12  # Default lease term
+                        )
+                        
+                        # Record price change if this is an update
+                        if not created and latest_price:
+                            PriceChange.objects.create(
+                                apartment=apartment,
+                                old_price=latest_price.price,
+                                new_price=new_price,
+                                scraping_run=scraping_run
+                            )
+                            price_changes += 1
+
+                    updated_count += 1
+
+                # Mark apartments not in update as unavailable
+                Apartment.objects.filter(
+                    building=building,
+                    unit_number__in=existing_unit_numbers - current_units
+                ).update(
+                    status='unavailable',
+                    updated_at=timezone.now()
+                )
+
+                # Update scraping run status
+                scraping_run.status = 'completed'
+                scraping_run.end_time = timezone.now()
+                scraping_run.items_processed = updated_count
+                scraping_run.items_created = len(current_units - existing_unit_numbers)
+                scraping_run.items_updated = updated_count - scraping_run.items_created
+                scraping_run.items_errored = 0
+                scraping_run.save()
+
+                return Response({
+                    "message": "Bulk update completed successfully",
+                    "updated": updated_count,
+                    "price_changes": price_changes,
+                    "unavailable": len(existing_unit_numbers - current_units),
+                    "scraping_run_id": scraping_run.id
+                })
+
+        except Exception as e:
+            logger.error(f"Error in bulk update: {str(e)}")
+            if scraping_run:
+                scraping_run.status = 'failed'
+                scraping_run.error_log = str(e)
+                scraping_run.end_time = timezone.now()
+                scraping_run.save()
+            
+            return Response(
+                {"error": str(e)}, 
+                status=status.HTTP_400_BAD_REQUEST
+            )
